@@ -3,7 +3,7 @@
 ##        КРОССПЛАТФОРМЕННАЯ GUI БИБЛИОТЕКА НА SDL3
 ##              SDL3 GUI Library for Nim
 ## 
-## Версия:   1.0
+## Версия:   0.3
 ## Дата:     2026-02-14
 ## Зависит:  libSDL.nim (SDL3 wrapper)
 ## Автор:	 github.com/Balans097
@@ -234,7 +234,10 @@ type
     textColor*: SdlColor
     bgColor*: SdlColor
     borderColor*: SdlColor
-    listBox*: ListBox
+    hoverColor*: SdlColor
+    selectedColor*: SdlColor
+    dropdownHeight*: int
+    hoveredIndex*: int
     onSelect*: proc(combo: ComboBox, index: int)
 
   # Спиннер (числовое поле со стрелками)
@@ -245,9 +248,12 @@ type
     maxValue*: float
     step*: float
     decimals*: int
-    textField*: TextField
-    btnUp*: Button
-    btnDown*: Button
+    textColor*: SdlColor
+    bgColor*: SdlColor
+    borderColor*: SdlColor
+    buttonColor*: SdlColor
+    upPressed*: bool
+    downPressed*: bool
     onChange*: proc(spin: SpinBox, value: float)
 
   # Диалоговое окно
@@ -280,7 +286,8 @@ type
   # Вкладки
   Tab* = ref object
     title*: string
-    content*: Widget
+    content*: seq[Widget]
+    enabled*: bool
 
   TabControl* = ref object of Widget
     ## Элемент управления вкладками
@@ -290,6 +297,8 @@ type
     tabColor*: SdlColor
     activeTabColor*: SdlColor
     textColor*: SdlColor
+    borderColor*: SdlColor
+    hoveredTab*: int
     onTabChange*: proc(tc: TabControl, index: int)
 
   # Меню
@@ -312,7 +321,21 @@ type
     bgColor*: SdlColor
     hoverColor*: SdlColor
     textColor*: SdlColor
+    borderColor*: SdlColor
+    openSubmenu*: int
 
+  # MenuBar (горизонтальное меню с выпадающими подменю)
+  MenuBar* = ref object of Widget
+    ## Горизонтальное меню с выпадающими подменю
+    menus*: seq[Menu]  # Список меню (Файл, Правка и т.д.)
+    hoveredMenu*: int  # Индекс меню под курсором
+    openMenu*: int     # Индекс открытого меню (-1 если нет)
+    itemWidth*: int    # Ширина пунктов меню
+    bgColor*: SdlColor
+    textColor*: SdlColor
+    hoverColor*: SdlColor
+    borderColor*: SdlColor
+  
   # Тулбар
   ToolBar* = ref object of Widget
     ## Панель инструментов
@@ -320,6 +343,7 @@ type
     buttonSize*: int
     spacing*: int
     bgColor*: SdlColor
+    borderColor*: SdlColor
 
   # Tooltip
   ToolTip* = ref object
@@ -333,6 +357,15 @@ type
     borderColor*: SdlColor
     delay*: int
     timer*: int
+
+  # StatusBar
+  StatusBar* = ref object of Widget
+    ## Строка состояния внизу окна
+    text*: string
+    textColor*: SdlColor
+    bgColor*: SdlColor
+    borderColor*: SdlColor
+    sections*: seq[string]  # Несколько секций текста
 
   # GUI менеджер
   GuiManager* = ref object
@@ -511,7 +544,7 @@ proc addWidget*(gui: GuiManager, widget: Widget) =
 
 proc removeWidget*(gui: GuiManager, widget: Widget) =
   ## Удалить виджет
-  let idx = gui.widgets.find(widget)
+  let idx: int = find(gui.widgets, widget)
   if idx >= 0:
     gui.widgets.delete(idx)
 
@@ -524,8 +557,17 @@ proc findWidgetById*(gui: GuiManager, id: string): Widget =
 
 proc setFocus*(gui: GuiManager, widget: Widget) =
   ## Установить фокус на виджет
+  # ИСПРАВЛЕНИЕ: Очищаем выделение текста при потере фокуса
   if gui.focusedWidget != nil:
+    if gui.focusedWidget of TextArea:
+      let area = TextArea(gui.focusedWidget)
+      area.hasSelection = false
+    elif gui.focusedWidget of TextField:
+      let field = TextField(gui.focusedWidget)
+      field.selectionStart = 0
+      field.selectionEnd = 0
     gui.focusedWidget.state = wsNormal
+  
   gui.focusedWidget = widget
   if widget != nil:
     widget.state = wsFocused
@@ -535,10 +577,11 @@ proc setFocus*(gui: GuiManager, widget: Widget) =
 
 proc updateCursorBlink*(gui: GuiManager) =
   ## Обновить состояние мигающего курсора
-  let currentTime = SDL_GetTicks()
+  let currentTime: uint64 = SDL_GetTicks()
   if currentTime - gui.cursorBlinkTime >= gui.cursorBlinkInterval:
     gui.cursorVisible = not gui.cursorVisible
     gui.cursorBlinkTime = currentTime
+
 
 # =============================================================================
 # Кнопка
@@ -584,6 +627,22 @@ proc renderButton*(gui: GuiManager, btn: Button) =
   # Граница
   renderRect(gui.renderer, btn.rect, btn.borderColor, gui.theme.borderWidth)
   
+  # Иконка (если есть)
+  var iconWidth = 0
+  if not btn.icon.isNil:
+    let iconX = btn.rect.x.int + btn.iconRect.x.int
+    let iconY = btn.rect.y.int + btn.iconRect.y.int
+    
+    # Получаем реальный размер текстуры
+    var texW, texH: cfloat
+    discard SDL_GetTextureSize(btn.icon, addr texW, addr texH)
+    
+    # srcRect - вся текстура, dstRect - масштабированный размер из iconRect
+    var srcRect = initFRect(0, 0, texW, texH)
+    var dstRect = initFRect(iconX.cfloat, iconY.cfloat, btn.iconRect.w.cfloat, btn.iconRect.h.cfloat)
+    discard SDL_RenderTexture(gui.renderer, btn.icon, addr srcRect, addr dstRect)
+    iconWidth = btn.iconRect.w.int + 8  # Ширина иконки + отступ
+  
   # Текст
   if btn.text.len > 0:
     let textSize = getTextSize(gui.theme.font, btn.text)
@@ -592,11 +651,21 @@ proc renderButton*(gui: GuiManager, btn: Button) =
     
     case btn.textAlign:
     of alignCenter:
-      textX = btn.rect.x.int + (btn.rect.w.int - textSize.w) div 2
+      # Если есть иконка, центрируем текст с учётом иконки
+      if iconWidth > 0:
+        let totalWidth = iconWidth + textSize.w
+        let startX = btn.rect.x.int + (btn.rect.w.int - totalWidth) div 2
+        textX = startX + iconWidth
+      else:
+        textX = btn.rect.x.int + (btn.rect.w.int - textSize.w) div 2
     of alignRight:
       textX = btn.rect.x.int + btn.rect.w.int - textSize.w - gui.theme.padding
     else:
-      textX = btn.rect.x.int + gui.theme.padding
+      # alignLeft - если есть иконка, текст справа от неё
+      if iconWidth > 0:
+        textX = btn.rect.x.int + iconWidth + gui.theme.padding
+      else:
+        textX = btn.rect.x.int + gui.theme.padding
     
     discard renderText(gui.renderer, gui.theme.font, btn.text, textX, textY, btn.textColor)
 
@@ -1998,6 +2067,1020 @@ proc handleListBoxEvent*(list: ListBox, event: ptr SdlEvent): bool =
   return false
 
 # =============================================================================
+
+# =============================================================================
+# ComboBox (Выпадающий список)
+# =============================================================================
+
+proc createComboBox*(id: string, x, y, w, h: int): ComboBox =
+  ## Создать выпадающий список
+  result = ComboBox(
+    id: id,
+    rect: initRect(x, y, w, h),
+    items: @[],
+    selectedIndex: -1,
+    isOpen: false,
+    state: wsNormal,
+    visible: true,
+    enabled: true,
+    children: @[],
+    textColor: initColor(0, 0, 0),
+    bgColor: initColor(255, 255, 255),
+    borderColor: initColor(122, 122, 122),
+    hoverColor: initColor(229, 243, 255),
+    selectedColor: initColor(0, 120, 215),
+    dropdownHeight: 150,
+    hoveredIndex: -1
+  )
+
+proc renderComboBox*(gui: GuiManager, combo: ComboBox) =
+  ## Отрендерить выпадающий список
+  if not combo.visible:
+    return
+  
+  # Основное поле
+  var bgColor = combo.bgColor
+  if combo.state == wsHover or combo.isOpen:
+    bgColor = combo.hoverColor
+  
+  renderFillRect(gui.renderer, combo.rect, bgColor)
+  renderRect(gui.renderer, combo.rect, combo.borderColor, gui.theme.borderWidth)
+  
+  # Текст выбранного элемента
+  if combo.selectedIndex >= 0 and combo.selectedIndex < combo.items.len:
+    let text = combo.items[combo.selectedIndex]
+    let textSize = getTextSize(gui.theme.font, text)
+    let textX = combo.rect.x.int + gui.theme.padding
+    let textY = combo.rect.y.int + (combo.rect.h.int - textSize.h) div 2
+    discard renderText(gui.renderer, gui.theme.font, text, textX, textY, combo.textColor)
+  
+  # Стрелка вниз
+  let arrowSize = 8
+  let arrowX = combo.rect.x.int + combo.rect.w.int - arrowSize - gui.theme.padding
+  let arrowY = combo.rect.y.int + (combo.rect.h.int - arrowSize) div 2
+  
+  # Рисуем треугольник
+  setRenderColor(gui.renderer, combo.textColor)
+  for i in 0..<arrowSize:
+    let y = arrowY + i
+    let x1 = arrowX + (arrowSize - i) div 2
+    let x2 = arrowX + arrowSize - (arrowSize - i) div 2
+    discard SDL_RenderLine(gui.renderer, x1.cfloat, y.cfloat, x2.cfloat, y.cfloat)
+  
+  # Выпадающий список
+  if combo.isOpen and combo.items.len > 0:
+    let itemHeight = max(20, combo.rect.h.int)
+    let maxItems = min(combo.items.len, combo.dropdownHeight div itemHeight)
+    let dropHeight = maxItems * itemHeight
+    
+    let dropRect = initRect(
+      combo.rect.x.int,
+      combo.rect.y.int + combo.rect.h.int,
+      combo.rect.w.int,
+      dropHeight
+    )
+    
+    # Фон списка
+    renderFillRect(gui.renderer, dropRect, combo.bgColor)
+    renderRect(gui.renderer, dropRect, combo.borderColor, gui.theme.borderWidth)
+    
+    # Элементы
+    for i in 0..<maxItems:
+      let itemY = dropRect.y.int + i * itemHeight
+      let itemRect = initRect(dropRect.x.int, itemY, dropRect.w.int, itemHeight)
+      
+      # Подсветка наведённого элемента
+      if i == combo.hoveredIndex:
+        renderFillRect(gui.renderer, itemRect, combo.hoverColor)
+        # Добавляем толстый яркий зелёный контур для наведённого элемента
+        let borderColor = initColor(0, 255, 0)  # Яркий зелёный цвет
+        renderRect(gui.renderer, itemRect, borderColor, 2)  # Толщина 2 пикселя
+      elif i == combo.selectedIndex:
+        renderFillRect(gui.renderer, itemRect, combo.selectedColor)
+        renderRect(gui.renderer, itemRect, combo.selectedColor, 1)
+      
+      # Текст элемента
+      let text = combo.items[i]
+      let textSize = getTextSize(gui.theme.font, text)
+      let textX = itemRect.x.int + gui.theme.padding
+      let textY = itemY + (itemHeight - textSize.h) div 2
+      let textColor = if i == combo.selectedIndex: initColor(255, 255, 255) else: combo.textColor
+      discard renderText(gui.renderer, gui.theme.font, text, textX, textY, textColor)
+
+proc handleComboBoxEvent*(gui: GuiManager, combo: ComboBox, event: ptr SdlEvent): bool =
+  ## Обработать событие для выпадающего списка
+  if not combo.visible or not combo.enabled:
+    return false
+  
+  case event.type:
+  of SDL_EVENT_MOUSE_MOTION:
+    let x = event.motion.x
+    let y = event.motion.y
+    
+    # Сначала проверяем наведение на выпадающий список
+    if combo.isOpen:
+      let itemHeight = max(20, combo.rect.h.int)
+      let maxItems = min(combo.items.len, combo.dropdownHeight div itemHeight)
+      let dropHeight = maxItems * itemHeight
+      let dropY = combo.rect.y.int + combo.rect.h.int
+      let dropX = combo.rect.x.int
+      let dropW = combo.rect.w.int
+      
+      # Проверяем, находится ли курсор над выпадающим списком
+      if x.int >= dropX and x.int < dropX + dropW and
+         y.int >= dropY and y.int < dropY + dropHeight:
+        let relY = y.int - dropY
+        let index = relY div itemHeight
+        if index >= 0 and index < combo.items.len:
+          combo.hoveredIndex = index
+        else:
+          combo.hoveredIndex = -1
+        return true
+      else:
+        combo.hoveredIndex = -1
+    
+    # Теперь проверяем наведение на основное поле
+    if pointInRect(x, y, combo.rect):
+      combo.state = wsHover
+      return true
+    else:
+      if combo.state == wsHover:
+        combo.state = wsNormal
+      combo.hoveredIndex = -1
+  
+  of SDL_EVENT_MOUSE_BUTTON_DOWN:
+    let x = event.button.x
+    let y = event.button.y
+    
+    # Клик по основному полю
+    if pointInRect(x, y, combo.rect):
+      combo.isOpen = not combo.isOpen
+      if combo.isOpen:
+        gui.setFocus(combo)
+      return true
+    
+    # Клик по выпадающему списку
+    if combo.isOpen:
+      let itemHeight = max(20, combo.rect.h.int)
+      let maxItems = min(combo.items.len, combo.dropdownHeight div itemHeight)
+      let dropHeight = maxItems * itemHeight
+      let dropY = combo.rect.y.int + combo.rect.h.int
+      
+      if x.int >= combo.rect.x.int and x.int <= (combo.rect.x + combo.rect.w).int and
+         y.int >= dropY and y.int < dropY + dropHeight:
+        let relY = y.int - dropY
+        let index = relY div itemHeight
+        
+        if index >= 0 and index < combo.items.len:
+          combo.selectedIndex = index
+          combo.isOpen = false
+          if combo.onSelect != nil:
+            combo.onSelect(combo, index)
+          return true
+      else:
+        # Клик вне списка - закрываем
+        combo.isOpen = false
+    
+    return false
+  
+  of SDL_EVENT_KEY_DOWN:
+    if combo.state == wsFocused and combo.isOpen:
+      case event.key.key:
+      of SDLK_ESCAPE:
+        combo.isOpen = false
+        return true
+      of SDLK_RETURN, SDLK_KP_ENTER:
+        if combo.hoveredIndex >= 0:
+          combo.selectedIndex = combo.hoveredIndex
+          combo.isOpen = false
+          if combo.onSelect != nil:
+            combo.onSelect(combo, combo.selectedIndex)
+        return true
+      of SDLK_UP:
+        if combo.hoveredIndex > 0:
+          combo.hoveredIndex -= 1
+        else:
+          combo.hoveredIndex = combo.items.len - 1
+        return true
+      of SDLK_DOWN:
+        if combo.hoveredIndex < combo.items.len - 1:
+          combo.hoveredIndex += 1
+        else:
+          combo.hoveredIndex = 0
+        return true
+      else:
+        discard
+  
+  else:
+    discard
+  
+  return false
+
+# =============================================================================
+# SpinBox (Числовое поле со стрелками)
+# =============================================================================
+
+proc createSpinBox*(id: string, x, y, w, h: int, minVal, maxVal: float, decimals: int = 0): SpinBox =
+  ## Создать числовое поле со стрелками
+  result = SpinBox(
+    id: id,
+    rect: initRect(x, y, w, h),
+    value: minVal,
+    minValue: minVal,
+    maxValue: maxVal,
+    step: if decimals > 0: 0.1 else: 1.0,
+    decimals: decimals,
+    state: wsNormal,
+    visible: true,
+    enabled: true,
+    children: @[],
+    textColor: initColor(0, 0, 0),
+    bgColor: initColor(255, 255, 255),
+    borderColor: initColor(122, 122, 122),
+    buttonColor: initColor(240, 240, 240),
+    upPressed: false,
+    downPressed: false
+  )
+
+proc renderSpinBox*(gui: GuiManager, spin: SpinBox) =
+  ## Отрендерить SpinBox
+  if not spin.visible:
+    return
+  
+  let buttonWidth = 16
+  let textRect = initRect(
+    spin.rect.x.int,
+    spin.rect.y.int,
+    spin.rect.w.int - buttonWidth,
+    spin.rect.h.int
+  )
+  
+  # Поле для текста
+  renderFillRect(gui.renderer, textRect, spin.bgColor)
+  renderRect(gui.renderer, textRect, spin.borderColor, gui.theme.borderWidth)
+  
+  # Текст значения
+  let valueStr = if spin.decimals > 0:
+    formatFloat(spin.value, ffDecimal, spin.decimals)
+  else:
+    $spin.value.int
+  
+  let textSize = getTextSize(gui.theme.font, valueStr)
+  let textX = textRect.x.int + (textRect.w.int - textSize.w) div 2
+  let textY = textRect.y.int + (textRect.h.int - textSize.h) div 2
+  discard renderText(gui.renderer, gui.theme.font, valueStr, textX, textY, spin.textColor)
+  
+  # Кнопки вверх/вниз
+  let btnHeight = spin.rect.h.int div 2
+  let upRect = initRect(
+    spin.rect.x.int + spin.rect.w.int - buttonWidth,
+    spin.rect.y.int,
+    buttonWidth,
+    btnHeight
+  )
+  let downRect = initRect(
+    spin.rect.x.int + spin.rect.w.int - buttonWidth,
+    spin.rect.y.int + btnHeight,
+    buttonWidth,
+    spin.rect.h.int - btnHeight
+  )
+  
+  # Кнопка вверх
+  let upColor = if spin.upPressed: gui.theme.activeColor else: spin.buttonColor
+  renderFillRect(gui.renderer, upRect, upColor)
+  renderRect(gui.renderer, upRect, spin.borderColor, gui.theme.borderWidth)
+  
+  # Стрелка вверх
+  let upArrowSize = 6
+  let upArrowX = upRect.x.int + (upRect.w.int - upArrowSize) div 2
+  let upArrowY = upRect.y.int + (upRect.h.int - upArrowSize div 2) div 2
+  setRenderColor(gui.renderer, spin.textColor)
+  for i in 0..<upArrowSize div 2:
+    let y = upArrowY + upArrowSize div 2 - i
+    let x1 = upArrowX + i
+    let x2 = upArrowX + upArrowSize - i
+    discard SDL_RenderLine(gui.renderer, x1.cfloat, y.cfloat, x2.cfloat, y.cfloat)
+  
+  # Кнопка вниз
+  let downColor = if spin.downPressed: gui.theme.activeColor else: spin.buttonColor
+  renderFillRect(gui.renderer, downRect, downColor)
+  renderRect(gui.renderer, downRect, spin.borderColor, gui.theme.borderWidth)
+  
+  # Стрелка вниз
+  let downArrowSize = 6
+  let downArrowX = downRect.x.int + (downRect.w.int - downArrowSize) div 2
+  let downArrowY = downRect.y.int + (downRect.h.int - downArrowSize div 2) div 2
+  setRenderColor(gui.renderer, spin.textColor)
+  for i in 0..<downArrowSize div 2:
+    let y = downArrowY + i
+    let x1 = downArrowX + i
+    let x2 = downArrowX + downArrowSize - i
+    discard SDL_RenderLine(gui.renderer, x1.cfloat, y.cfloat, x2.cfloat, y.cfloat)
+
+proc handleSpinBoxEvent*(gui: GuiManager, spin: SpinBox, event: ptr SdlEvent): bool =
+  ## Обработать событие для SpinBox
+  if not spin.visible or not spin.enabled:
+    return false
+  
+  let buttonWidth = 16
+  let btnHeight = spin.rect.h.int div 2
+  let upRect = initRect(
+    spin.rect.x.int + spin.rect.w.int - buttonWidth,
+    spin.rect.y.int,
+    buttonWidth,
+    btnHeight
+  )
+  let downRect = initRect(
+    spin.rect.x.int + spin.rect.w.int - buttonWidth,
+    spin.rect.y.int + btnHeight,
+    buttonWidth,
+    spin.rect.h.int - btnHeight
+  )
+  
+  case event.type:
+  of SDL_EVENT_MOUSE_BUTTON_DOWN:
+    let x = event.button.x
+    let y = event.button.y
+    
+    if pointInRect(x, y, upRect):
+      spin.upPressed = true
+      spin.value = min(spin.maxValue, spin.value + spin.step)
+      if spin.onChange != nil:
+        spin.onChange(spin, spin.value)
+      return true
+    
+    if pointInRect(x, y, downRect):
+      spin.downPressed = true
+      spin.value = max(spin.minValue, spin.value - spin.step)
+      if spin.onChange != nil:
+        spin.onChange(spin, spin.value)
+      return true
+    
+    if pointInRect(x, y, spin.rect):
+      gui.setFocus(spin)
+      return true
+  
+  of SDL_EVENT_MOUSE_BUTTON_UP:
+    spin.upPressed = false
+    spin.downPressed = false
+  
+  of SDL_EVENT_MOUSE_WHEEL:
+    if spin.state == wsFocused:
+      if event.wheel.y > 0:
+        spin.value = min(spin.maxValue, spin.value + spin.step)
+      else:
+        spin.value = max(spin.minValue, spin.value - spin.step)
+      if spin.onChange != nil:
+        spin.onChange(spin, spin.value)
+      return true
+  
+  of SDL_EVENT_KEY_DOWN:
+    if spin.state == wsFocused:
+      case event.key.key:
+      of SDLK_UP:
+        spin.value = min(spin.maxValue, spin.value + spin.step)
+        if spin.onChange != nil:
+          spin.onChange(spin, spin.value)
+        return true
+      of SDLK_DOWN:
+        spin.value = max(spin.minValue, spin.value - spin.step)
+        if spin.onChange != nil:
+          spin.onChange(spin, spin.value)
+        return true
+      else:
+        discard
+  
+  else:
+    discard
+  
+  return false
+
+# =============================================================================
+# TabControl (Вкладки)
+# =============================================================================
+
+proc createTab*(title: string): Tab =
+  ## Создать вкладку
+  result = Tab(
+    title: title,
+    content: @[],
+    enabled: true
+  )
+
+proc createTabControl*(id: string, x, y, w, h: int): TabControl =
+  ## Создать элемент управления вкладками
+  result = TabControl(
+    id: id,
+    rect: initRect(x, y, w, h),
+    tabs: @[],
+    activeTab: 0,
+    tabHeight: 30,
+    state: wsNormal,
+    visible: true,
+    enabled: true,
+    children: @[],
+    tabColor: initColor(220, 220, 220),
+    activeTabColor: initColor(255, 255, 255),
+    textColor: initColor(0, 0, 0),
+    borderColor: initColor(180, 180, 180),
+    hoveredTab: -1
+  )
+
+proc addTab*(tc: TabControl, tab: Tab) =
+  ## Добавить вкладку
+  tc.tabs.add(tab)
+
+proc renderTabControl*(gui: GuiManager, tc: TabControl) =
+  ## Отрендерить TabControl
+  if not tc.visible or tc.tabs.len == 0:
+    return
+  
+  let tabWidth = if tc.tabs.len > 0: tc.rect.w.int div tc.tabs.len else: 100
+  
+  # Рендерим заголовки вкладок
+  for i, tab in tc.tabs:
+    let tabX = tc.rect.x.int + i * tabWidth
+    let tabRect = initRect(tabX, tc.rect.y.int, tabWidth, tc.tabHeight)
+    
+    # Фон вкладки
+    let bgColor = if i == tc.activeTab:
+      tc.activeTabColor
+    elif i == tc.hoveredTab:
+      gui.theme.hoverColor
+    else:
+      tc.tabColor
+    
+    renderFillRect(gui.renderer, tabRect, bgColor)
+    renderRect(gui.renderer, tabRect, tc.borderColor, gui.theme.borderWidth)
+    
+    # Текст вкладки
+    let textSize = getTextSize(gui.theme.font, tab.title)
+    let textX = tabX + (tabWidth - textSize.w) div 2
+    let textY = tc.rect.y.int + (tc.tabHeight - textSize.h) div 2
+    discard renderText(gui.renderer, gui.theme.font, tab.title, textX, textY, tc.textColor)
+  
+  # Область содержимого
+  let contentRect = initRect(
+    tc.rect.x.int,
+    tc.rect.y.int + tc.tabHeight,
+    tc.rect.w.int,
+    tc.rect.h.int - tc.tabHeight
+  )
+  
+  renderFillRect(gui.renderer, contentRect, tc.activeTabColor)
+  renderRect(gui.renderer, contentRect, tc.borderColor, gui.theme.borderWidth)
+  
+  # Рендерим содержимое активной вкладки
+  if tc.activeTab >= 0 and tc.activeTab < tc.tabs.len:
+    let tab = tc.tabs[tc.activeTab]
+    for widget in tab.content:
+      if not widget.visible:
+        continue
+      
+      # Рендерим виджеты содержимого
+      if widget of Button:
+        renderButton(gui, Button(widget))
+      elif widget of Label:
+        renderLabel(gui, Label(widget))
+      elif widget of TextField:
+        renderTextField(gui, TextField(widget))
+      elif widget of CheckBox:
+        renderCheckBox(gui, CheckBox(widget))
+      # Добавьте остальные типы виджетов по необходимости
+
+proc handleTabControlEvent*(gui: GuiManager, tc: TabControl, event: ptr SdlEvent): bool =
+  ## Обработать событие для TabControl
+  if not tc.visible or not tc.enabled or tc.tabs.len == 0:
+    return false
+  
+  case event.type:
+  of SDL_EVENT_MOUSE_MOTION:
+    let x = event.motion.x
+    let y = event.motion.y
+    
+    # Проверяем наведение на заголовки вкладок
+    if y.int >= tc.rect.y.int and y.int < (tc.rect.y + tc.tabHeight).int:
+      let tabWidth = tc.rect.w.int div tc.tabs.len
+      if x.int >= tc.rect.x.int and x.int < (tc.rect.x + tc.rect.w).int:
+        tc.hoveredTab = ((x.int - tc.rect.x.int)) div tabWidth
+        if tc.hoveredTab >= tc.tabs.len:
+          tc.hoveredTab = -1
+      else:
+        tc.hoveredTab = -1
+    else:
+      tc.hoveredTab = -1
+  
+  of SDL_EVENT_MOUSE_BUTTON_DOWN:
+    let x = event.button.x
+    let y = event.button.y
+    
+    # Клик по заголовку вкладки
+    if y.int >= tc.rect.y.int and y.int < (tc.rect.y + tc.tabHeight).int:
+      let tabWidth = tc.rect.w.int div tc.tabs.len
+      if x.int >= tc.rect.x.int and x.int < (tc.rect.x + tc.rect.w).int:
+        let clickedTab = ((x.int - tc.rect.x.int)) div tabWidth
+        if clickedTab >= 0 and clickedTab < tc.tabs.len and tc.tabs[clickedTab].enabled:
+          tc.activeTab = clickedTab
+          if tc.onTabChange != nil:
+            tc.onTabChange(tc, clickedTab)
+          return true
+  
+  else:
+    discard
+  
+  return false
+
+# =============================================================================
+# Menu (Меню)
+# =============================================================================
+
+proc createMenuItem*(text: string, onClick: proc(item: MenuItem) = nil): MenuItem =
+  ## Создать элемент меню
+  result = MenuItem(
+    text: text,
+    shortcut: "",
+    enabled: true,
+    checkable: false,
+    checked: false,
+    separator: false,
+    submenu: @[],
+    onClick: onClick
+  )
+
+proc createMenuSeparator*(): MenuItem =
+  ## Создать разделитель меню
+  result = MenuItem(
+    text: "",
+    enabled: false,
+    separator: true,
+    submenu: @[]
+  )
+
+proc createMenu*(id: string, x, y, w: int): Menu =
+  ## Создать меню
+  result = Menu(
+    id: id,
+    rect: initRect(x, y, w, 0),  # Высота вычисляется динамически
+    items: @[],
+    isOpen: false,
+    selectedIndex: -1,
+    itemHeight: 25,
+    state: wsNormal,
+    visible: true,
+    enabled: true,
+    children: @[],
+    bgColor: initColor(255, 255, 255),
+    hoverColor: initColor(229, 243, 255),
+    textColor: initColor(0, 0, 0),
+    borderColor: initColor(160, 160, 160),
+    openSubmenu: -1
+  )
+
+proc addMenuItem*(menu: Menu, item: MenuItem) =
+  ## Добавить элемент в меню
+  menu.items.add(item)
+  # Обновляем высоту меню
+  menu.rect.h = cint(menu.items.len * menu.itemHeight)
+
+proc renderMenu*(gui: GuiManager, menu: Menu) =
+  ## Отрендерить меню
+  if not menu.visible or not menu.isOpen:
+    return
+  
+  # Фон меню
+  renderFillRect(gui.renderer, menu.rect, menu.bgColor)
+  renderRect(gui.renderer, menu.rect, menu.borderColor, 1)
+  
+  # Элементы меню
+  for i, item in menu.items:
+    let itemY = menu.rect.y.int + i * menu.itemHeight
+    let itemRect = initRect(menu.rect.x.int, itemY, menu.rect.w.int, menu.itemHeight)
+    
+    if item.separator:
+      # Разделитель
+      let lineY = itemY + menu.itemHeight div 2
+      setRenderColor(gui.renderer, menu.borderColor)
+      discard SDL_RenderLine(gui.renderer,
+        (menu.rect.x + 5).cfloat, lineY.cfloat,
+        (menu.rect.x + menu.rect.w - 5).cfloat, lineY.cfloat)
+    else:
+      # Подсветка наведённого элемента
+      if i == menu.selectedIndex and item.enabled:
+        renderFillRect(gui.renderer, itemRect, menu.hoverColor)
+        # Добавляем толстый яркий зелёный контур для наведённого элемента
+        let borderColor = initColor(0, 255, 0)  # Яркий зелёный цвет
+        renderRect(gui.renderer, itemRect, borderColor, 2)  # Толщина 2 пикселя
+      
+      # Текст элемента
+      let textColor = if item.enabled: menu.textColor else: initColor(150, 150, 150)
+      let textSize = getTextSize(gui.theme.font, item.text)
+      let textX = menu.rect.x.int + gui.theme.padding
+      let textY = itemY + (menu.itemHeight - textSize.h) div 2
+      discard renderText(gui.renderer, gui.theme.font, item.text, textX, textY, textColor)
+      
+      # Галочка для checkable элементов
+      if item.checkable and item.checked:
+        let checkX = menu.rect.x.int + menu.rect.w.int - 20
+        let checkY = itemY + menu.itemHeight div 2
+        setRenderColor(gui.renderer, menu.textColor)
+        discard SDL_RenderLine(gui.renderer, (checkX).cfloat, (checkY).cfloat, (checkX + 4).cfloat, (checkY + 4).cfloat)
+        discard SDL_RenderLine(gui.renderer, (checkX + 4).cfloat, (checkY + 4).cfloat, (checkX + 10).cfloat, (checkY - 4).cfloat)
+      
+      # Ярлык (shortcut)
+      if item.shortcut.len > 0:
+        let shortcutSize = getTextSize(gui.theme.font, item.shortcut)
+        let shortcutX = menu.rect.x.int + menu.rect.w.int - shortcutSize.w - gui.theme.padding
+        discard renderText(gui.renderer, gui.theme.font, item.shortcut, shortcutX, textY, 
+                          initColor(128, 128, 128))
+
+proc handleMenuEvent*(gui: GuiManager, menu: Menu, event: ptr SdlEvent): bool =
+  ## Обработать событие для меню
+  if not menu.visible or not menu.enabled:
+    return false
+  
+  case event.type:
+  of SDL_EVENT_MOUSE_MOTION:
+    if not menu.isOpen:
+      return false
+    
+    let x = event.motion.x
+    let y = event.motion.y
+    
+    if x.int >= menu.rect.x.int and x.int < (menu.rect.x + menu.rect.w).int and
+       y.int >= menu.rect.y.int and y.int < (menu.rect.y + menu.rect.h).int:
+      let relY = y.int - menu.rect.y.int
+      let index = relY div menu.itemHeight
+      if index >= 0 and index < menu.items.len and not menu.items[index].separator:
+        menu.selectedIndex = index
+      return true
+    else:
+      menu.selectedIndex = -1
+  
+  of SDL_EVENT_MOUSE_BUTTON_DOWN:
+    let x = event.button.x
+    let y = event.button.y
+    
+    if not menu.isOpen:
+      # Открываем меню при клике на область
+      if pointInRect(x, y, menu.rect):
+        menu.isOpen = true
+        return true
+    else:
+      # Обрабатываем клик по элементу меню
+      if x.int >= menu.rect.x.int and x.int < (menu.rect.x + menu.rect.w).int and
+         y.int >= menu.rect.y.int and y.int < (menu.rect.y + menu.rect.h).int:
+        let relY = y.int - menu.rect.y.int
+        let index = relY div menu.itemHeight
+        
+        if index >= 0 and index < menu.items.len:
+          let item = menu.items[index]
+          if not item.separator and item.enabled:
+            if item.checkable:
+              item.checked = not item.checked
+            if item.onClick != nil:
+              item.onClick(item)
+            menu.isOpen = false
+            return true
+      else:
+        # Клик вне меню - закрываем
+        menu.isOpen = false
+        return true
+  
+  of SDL_EVENT_KEY_DOWN:
+    if menu.isOpen:
+      case event.key.key:
+      of SDLK_ESCAPE:
+        menu.isOpen = false
+        return true
+      of SDLK_UP:
+        if menu.selectedIndex > 0:
+          menu.selectedIndex -= 1
+          # Пропускаем разделители
+          while menu.selectedIndex > 0 and menu.items[menu.selectedIndex].separator:
+            menu.selectedIndex -= 1
+        return true
+      of SDLK_DOWN:
+        if menu.selectedIndex < menu.items.len - 1:
+          menu.selectedIndex += 1
+          # Пропускаем разделители
+          while menu.selectedIndex < menu.items.len - 1 and menu.items[menu.selectedIndex].separator:
+            menu.selectedIndex += 1
+        return true
+      of SDLK_RETURN, SDLK_KP_ENTER:
+        if menu.selectedIndex >= 0 and menu.selectedIndex < menu.items.len:
+          let item = menu.items[menu.selectedIndex]
+          if not item.separator and item.enabled:
+            if item.checkable:
+              item.checked = not item.checked
+            if item.onClick != nil:
+              item.onClick(item)
+            menu.isOpen = false
+          return true
+      else:
+        discard
+  
+  else:
+    discard
+  
+  return false
+
+# =============================================================================
+# MenuBar (Горизонтальное меню)
+# =============================================================================
+
+proc createMenuBar*(id: string, x, y, w, h: int): MenuBar =
+  ## Создать горизонтальное меню
+  result = MenuBar(
+    id: id,
+    rect: initRect(x, y, w, h),
+    menus: @[],
+    hoveredMenu: -1,
+    openMenu: -1,
+    itemWidth: 80,  # Будет пересчитано при добавлении меню
+    state: wsNormal,
+    visible: true,
+    enabled: true,
+    children: @[],
+    bgColor: initColor(240, 240, 240),
+    textColor: initColor(0, 0, 0),
+    hoverColor: initColor(229, 243, 255),
+    borderColor: initColor(180, 180, 180)
+  )
+
+proc addMenu*(menubar: MenuBar, menu: Menu) =
+  ## Добавить меню в MenuBar
+  menubar.menus.add(menu)
+
+proc calculateMenuWidths*(menubar: MenuBar, font: TTF_Font): seq[int] =
+  ## Вычислить ширину каждого пункта меню на основе текста
+  result = @[]
+  for menu in menubar.menus:
+    let menuTitle = if menu.items.len > 0: menu.id else: "Меню"
+    let textSize = getTextSize(font, menuTitle)
+    # Добавляем отступы по 20 пикселей с каждой стороны
+    result.add(textSize.w + 40)
+
+proc renderMenuBar*(gui: GuiManager, menubar: MenuBar) =
+  ## Отрендерить MenuBar (только панель, без выпадающего меню)
+  if not menubar.visible:
+    return
+  
+  # Фон MenuBar
+  renderFillRect(gui.renderer, menubar.rect, menubar.bgColor)
+  renderRect(gui.renderer, menubar.rect, menubar.borderColor, 1)
+  
+  # Вычисляем ширины пунктов меню
+  let widths = calculateMenuWidths(menubar, gui.theme.font)
+  
+  # Рендерим заголовки меню
+  var currentX = menubar.rect.x.int
+  let highlightPadding = 3  # Отступ сверху и снизу для подсветки
+  
+  for i, menu in menubar.menus:
+    let itemWidth = widths[i]
+    
+    # Подсветка наведённого или открытого меню (с отступами сверху и снизу)
+    if i == menubar.hoveredMenu or i == menubar.openMenu:
+      let highlightRect = initRect(
+        currentX, 
+        menubar.rect.y.int + highlightPadding,
+        itemWidth, 
+        menubar.rect.h.int - highlightPadding * 2
+      )
+      renderFillRect(gui.renderer, highlightRect, menubar.hoverColor)
+    
+    # Текст заголовка меню (берём первый пункт как заголовок или используем id)
+    let menuTitle = if menu.items.len > 0: menu.id else: "Меню"
+    let textSize = getTextSize(gui.theme.font, menuTitle)
+    let textX = currentX + (itemWidth - textSize.w) div 2
+    let textY = menubar.rect.y.int + (menubar.rect.h.int - textSize.h) div 2
+    discard renderText(gui.renderer, gui.theme.font, menuTitle, textX, textY, menubar.textColor)
+    
+    currentX += itemWidth
+
+proc renderMenuBarDropdown*(gui: GuiManager, menubar: MenuBar) =
+  ## Отрендерить выпадающее меню MenuBar (должно вызываться поверх всех виджетов)
+  if not menubar.visible:
+    return
+  
+  # Рендерим открытое выпадающее меню
+  if menubar.openMenu >= 0 and menubar.openMenu < menubar.menus.len:
+    let menu = menubar.menus[menubar.openMenu]
+    
+    # Вычисляем позицию X для выпадающего меню
+    let widths = calculateMenuWidths(menubar, gui.theme.font)
+    var menuX = menubar.rect.x.int
+    for i in 0..<menubar.openMenu:
+      menuX += widths[i]
+    
+    let menuY = menubar.rect.y.int + menubar.rect.h.int
+    menu.rect.x = menuX.cint
+    menu.rect.y = menuY.cint
+    menu.isOpen = true
+    renderMenu(gui, menu)
+
+proc handleMenuBarEvent*(gui: GuiManager, menubar: MenuBar, event: ptr SdlEvent): bool =
+  ## Обработать событие для MenuBar
+  if not menubar.visible or not menubar.enabled:
+    return false
+  
+  case event.type:
+  of SDL_EVENT_MOUSE_MOTION:
+    let x = event.motion.x
+    let y = event.motion.y
+    
+    # Проверяем наведение на заголовки меню
+    if y.int >= menubar.rect.y.int and y.int < (menubar.rect.y + menubar.rect.h).int:
+      if x.int >= menubar.rect.x.int and x.int < (menubar.rect.x + menubar.rect.w).int:
+        # Вычисляем ширины и находим пункт под курсором
+        let widths = calculateMenuWidths(menubar, gui.theme.font)
+        var currentX = menubar.rect.x.int
+        menubar.hoveredMenu = -1
+        for i in 0..<menubar.menus.len:
+          if x.int >= currentX and x.int < currentX + widths[i]:
+            menubar.hoveredMenu = i
+            # Если какое-то меню уже открыто, переключаемся на наведённое
+            if menubar.openMenu >= 0:
+              menubar.openMenu = i
+            return true
+          currentX += widths[i]
+      else:
+        menubar.hoveredMenu = -1
+    else:
+      menubar.hoveredMenu = -1
+    
+    # Если меню открыто, передаём событие в него
+    if menubar.openMenu >= 0 and menubar.openMenu < menubar.menus.len:
+      let menu = menubar.menus[menubar.openMenu]
+      return handleMenuEvent(gui, menu, event)
+  
+  of SDL_EVENT_MOUSE_BUTTON_DOWN:
+    let x = event.button.x
+    let y = event.button.y
+    
+    # Клик по заголовку меню
+    if y.int >= menubar.rect.y.int and y.int < (menubar.rect.y + menubar.rect.h).int:
+      if x.int >= menubar.rect.x.int and x.int < (menubar.rect.x + menubar.rect.w).int:
+        # Вычисляем ширины и находим пункт под курсором
+        let widths = calculateMenuWidths(menubar, gui.theme.font)
+        var currentX = menubar.rect.x.int
+        for i in 0..<menubar.menus.len:
+          if x.int >= currentX and x.int < currentX + widths[i]:
+            if menubar.openMenu == i:
+              # Закрываем если кликнули на уже открытое меню
+              menubar.openMenu = -1
+            else:
+              # Открываем меню
+              menubar.openMenu = i
+            return true
+          currentX += widths[i]
+    
+    # Если меню открыто, передаём событие в него
+    if menubar.openMenu >= 0 and menubar.openMenu < menubar.menus.len:
+      let menu = menubar.menus[menubar.openMenu]
+      let handled = handleMenuEvent(gui, menu, event)
+      # Если меню обработало клик (выбран пункт), закрываем меню
+      if handled and not menu.isOpen:
+        menubar.openMenu = -1
+      return handled
+    else:
+      # Клик вне меню - закрываем
+      if menubar.openMenu >= 0:
+        menubar.openMenu = -1
+        return true
+  
+  of SDL_EVENT_KEY_DOWN:
+    if menubar.openMenu >= 0 and menubar.openMenu < menubar.menus.len:
+      let menu = menubar.menus[menubar.openMenu]
+      let handled = handleMenuEvent(gui, menu, event)
+      # Если меню закрылось, сбрасываем openMenu
+      if not menu.isOpen:
+        menubar.openMenu = -1
+      return handled
+  
+  else:
+    discard
+  
+  return false
+
+# =============================================================================
+# ToolBar (Панель инструментов)
+# =============================================================================
+
+proc createToolBar*(id: string, x, y, w, h: int): ToolBar =
+  ## Создать панель инструментов
+  result = ToolBar(
+    id: id,
+    rect: initRect(x, y, w, h),
+    buttons: @[],
+    buttonSize: 32,
+    spacing: 4,
+    state: wsNormal,
+    visible: true,
+    enabled: true,
+    children: @[],
+    bgColor: initColor(240, 240, 240),
+    borderColor: initColor(180, 180, 180)
+  )
+
+proc addToolButton*(toolbar: ToolBar, button: Button) =
+  ## Добавить кнопку на панель инструментов
+  # Позиционируем кнопку
+  let index = toolbar.buttons.len
+  let x = toolbar.rect.x.int + toolbar.spacing + index * (toolbar.buttonSize + toolbar.spacing)
+  let y = toolbar.rect.y.int + toolbar.spacing
+  
+  button.rect = initRect(x, y, toolbar.buttonSize, toolbar.buttonSize)
+  toolbar.buttons.add(button)
+
+proc renderToolBar*(gui: GuiManager, toolbar: ToolBar) =
+  ## Отрендерить панель инструментов
+  if not toolbar.visible:
+    return
+  
+  # Фон панели
+  renderFillRect(gui.renderer, toolbar.rect, toolbar.bgColor)
+  renderRect(gui.renderer, toolbar.rect, toolbar.borderColor, 1)
+  
+  # Кнопки
+  for button in toolbar.buttons:
+    renderButton(gui, button)
+
+proc handleToolBarEvent*(gui: GuiManager, toolbar: ToolBar, event: ptr SdlEvent): bool =
+  ## Обработать событие для панели инструментов
+  if not toolbar.visible or not toolbar.enabled:
+    return false
+  
+  # Передаём события кнопкам
+  for button in toolbar.buttons:
+    if handleButtonEvent(button, event):
+      return true
+  
+  return false
+
+# =============================================================================
+# ToolTip (Всплывающая подсказка)
+# =============================================================================
+
+proc updateTooltip*(gui: GuiManager) =
+  ## Обновить состояние всплывающей подсказки
+  if gui.tooltip.widget == nil:
+    gui.tooltip.visible = false
+    gui.tooltip.timer = 0
+    return
+  
+  # Проверяем, наведён ли курсор на виджет
+  let hovering = pointInRect(gui.cursorX, gui.cursorY, gui.tooltip.widget.rect)
+  
+  if hovering and gui.tooltip.widget.tooltip.len > 0:
+    gui.tooltip.timer += 1
+    if gui.tooltip.timer > gui.tooltip.delay:
+      gui.tooltip.visible = true
+      gui.tooltip.text = gui.tooltip.widget.tooltip
+      
+      # Вычисляем размер и позицию подсказки
+      let textSize = getTextSize(gui.theme.font, gui.tooltip.text)
+      let padding = 6
+      let w = textSize.w + padding * 2
+      let h = textSize.h + padding * 2
+      
+      # Позиционируем под курсором
+      gui.tooltip.rect = initRect(
+        gui.cursorX.int + 10,
+        gui.cursorY.int + 20,
+        w,
+        h
+      )
+  else:
+    gui.tooltip.visible = false
+    gui.tooltip.timer = 0
+    if not hovering:
+      gui.tooltip.widget = nil
+
+proc renderTooltip*(gui: GuiManager) =
+  ## Отрендерить всплывающую подсказку
+  if not gui.tooltip.visible or gui.tooltip.text.len == 0:
+    return
+  
+  # Фон подсказки
+  renderFillRect(gui.renderer, gui.tooltip.rect, gui.tooltip.bgColor)
+  renderRect(gui.renderer, gui.tooltip.rect, gui.tooltip.borderColor, 1)
+  
+  # Текст
+  let padding = 6
+  let textX = gui.tooltip.rect.x.int + padding
+  let textY = gui.tooltip.rect.y.int + padding
+  discard renderText(gui.renderer, gui.theme.font, gui.tooltip.text, textX, textY, 
+                    gui.tooltip.textColor)
+
+proc checkTooltipHover*(gui: GuiManager, widget: Widget) =
+  ## Проверить наведение для отображения подсказки
+  if widget.tooltip.len > 0 and pointInRect(gui.cursorX, gui.cursorY, widget.rect):
+    if gui.tooltip.widget != widget:
+      gui.tooltip.widget = widget
+      gui.tooltip.timer = 0
+      gui.tooltip.visible = false
+
 # Диалоговое окно
 # =============================================================================
 
@@ -2149,14 +3232,103 @@ proc handleDialogEvent*(dlg: Dialog, event: ptr SdlEvent): bool =
   return false
 
 # =============================================================================
+# StatusBar (Строка состояния)
+# =============================================================================
+
+proc createStatusBar*(id: string, x, y, w, h: int): StatusBar =
+  ## Создать строку состояния
+  result = StatusBar(
+    id: id,
+    rect: initRect(x, y, w, h),
+    text: "Готов",
+    sections: @[],
+    state: wsNormal,
+    visible: true,
+    enabled: true,
+    children: @[],
+    textColor: initColor(0, 0, 0),
+    bgColor: initColor(240, 240, 240),
+    borderColor: initColor(180, 180, 180)
+  )
+
+proc setText*(statusbar: StatusBar, text: string) =
+  ## Установить текст строки состояния
+  statusbar.text = text
+
+proc setSections*(statusbar: StatusBar, sections: seq[string]) =
+  ## Установить несколько секций текста
+  statusbar.sections = sections
+
+proc renderStatusBar*(gui: GuiManager, statusbar: StatusBar) =
+  ## Отрендерить строку состояния
+  if not statusbar.visible:
+    return
+  
+  # Фон
+  renderFillRect(gui.renderer, statusbar.rect, statusbar.bgColor)
+  
+  # Верхняя граница
+  let borderRect = initRect(statusbar.rect.x.int, statusbar.rect.y.int, 
+                           statusbar.rect.w.int, 1)
+  renderFillRect(gui.renderer, borderRect, statusbar.borderColor)
+  
+  # Если есть секции, рисуем их
+  if statusbar.sections.len > 0:
+    let sectionWidth = statusbar.rect.w.int div statusbar.sections.len
+    for i, section in statusbar.sections:
+      let sectionX = statusbar.rect.x.int + i * sectionWidth
+      
+      # Разделитель между секциями (кроме первой)
+      if i > 0:
+        setRenderColor(gui.renderer, statusbar.borderColor)
+        discard SDL_RenderLine(gui.renderer, 
+          sectionX.cfloat, statusbar.rect.y.cfloat,
+          sectionX.cfloat, (statusbar.rect.y + statusbar.rect.h).cfloat)
+      
+      # Текст секции
+      let textSize = getTextSize(gui.theme.font, section)
+      let textX = sectionX + gui.theme.padding
+      let textY = statusbar.rect.y.int + (statusbar.rect.h.int - textSize.h) div 2
+      discard renderText(gui.renderer, gui.theme.font, section, textX, textY, 
+                        statusbar.textColor)
+  else:
+    # Просто один текст
+    let textSize = getTextSize(gui.theme.font, statusbar.text)
+    let textX = statusbar.rect.x.int + gui.theme.padding
+    let textY = statusbar.rect.y.int + (statusbar.rect.h.int - textSize.h) div 2
+    discard renderText(gui.renderer, gui.theme.font, statusbar.text, textX, textY, 
+                      statusbar.textColor)
+
+# =============================================================================
 # Главная функция рендеринга
 # =============================================================================
 
 proc renderGui*(gui: GuiManager) =
   ## Отрендерить все виджеты
+  # Сначала рендерим все виджеты кроме открытых ComboBox, Menu и выпадающих меню MenuBar
+  var openComboBoxes: seq[ComboBox] = @[]
+  var openMenus: seq[Menu] = @[]
+  var openMenuBars: seq[MenuBar] = @[]
+  
   for widget in gui.widgets:
     if not widget.visible:
       continue
+    
+    # Откладываем рендеринг открытых ComboBox и Menu
+    if widget of ComboBox:
+      let combo = ComboBox(widget)
+      if combo.isOpen:
+        openComboBoxes.add(combo)
+        continue
+    elif widget of Menu:
+      let menu = Menu(widget)
+      if menu.isOpen:
+        openMenus.add(menu)
+        continue
+    elif widget of MenuBar:
+      let menubar = MenuBar(widget)
+      if menubar.openMenu >= 0:
+        openMenuBars.add(menubar)
     
     # Рендеринг в зависимости от типа виджета
     if widget of Button:
@@ -2179,12 +3351,44 @@ proc renderGui*(gui: GuiManager) =
       renderPanel(gui, Panel(widget))
     elif widget of ListBox:
       renderListBox(gui, ListBox(widget))
+    elif widget of ComboBox:
+      renderComboBox(gui, ComboBox(widget))
+    elif widget of SpinBox:
+      renderSpinBox(gui, SpinBox(widget))
+    elif widget of TabControl:
+      renderTabControl(gui, TabControl(widget))
+    elif widget of Menu:
+      renderMenu(gui, Menu(widget))
+    elif widget of MenuBar:
+      renderMenuBar(gui, MenuBar(widget))
+    elif widget of StatusBar:
+      renderStatusBar(gui, StatusBar(widget))
+    elif widget of ToolBar:
+      renderToolBar(gui, ToolBar(widget))
+  
+  # Теперь рендерим открытые ComboBox поверх всего
+  for combo in openComboBoxes:
+    renderComboBox(gui, combo)
+  
+  # Рендерим открытые Menu поверх всего
+  for menu in openMenus:
+    renderMenu(gui, menu)
+  
+  # Рендерим выпадающие меню MenuBar поверх всего
+  for menubar in openMenuBars:
+    renderMenuBarDropdown(gui, menubar)
   
   # Модальный диалог рендерится поверх всего
   if gui.modalDialog != nil and gui.modalDialog.visible:
     var w, h: cint
     discard SDL_GetRenderOutputSize(gui.renderer, addr w, addr h)
     renderDialog(gui, gui.modalDialog, w.int, h.int)
+  
+  # Рендерим tooltip поверх всего
+  renderTooltip(gui)
+  
+  # Рендерим tooltip поверх всего
+  renderTooltip(gui)
 
 proc handleGuiEvent*(gui: GuiManager, event: ptr SdlEvent): bool =
   ## Обработать событие для всех виджетов
@@ -2202,7 +3406,35 @@ proc handleGuiEvent*(gui: GuiManager, event: ptr SdlEvent): bool =
   # ИСПРАВЛЕНИЕ: при клике мыши проверяем, попал ли клик в какой-либо виджет
   var clickHandled = false
   
-  # Обработка событий для виджетов в обратном порядке (сверху вниз)
+  # КРИТИЧЕСКИ ВАЖНО: Сначала обрабатываем открытые MenuBar, ComboBox и Menu
+  # Они должны перехватывать события первыми, так как рисуются поверх
+  for i in countdown(gui.widgets.len - 1, 0):
+    let widget = gui.widgets[i]
+    if not widget.visible or not widget.enabled:
+      continue
+    
+    # Обрабатываем MenuBar с открытым меню ПЕРВЫМ (он всегда вверху окна)
+    if widget of MenuBar:
+      let menubar = MenuBar(widget)
+      if menubar.openMenu >= 0:
+        if handleMenuBarEvent(gui, menubar, event):
+          return true
+    
+    # Обрабатываем только открытые ComboBox
+    elif widget of ComboBox:
+      let combo = ComboBox(widget)
+      if combo.isOpen:
+        if handleComboBoxEvent(gui, combo, event):
+          return true
+    
+    # Обрабатываем только открытые Menu
+    elif widget of Menu:
+      let menu = Menu(widget)
+      if menu.isOpen:
+        if handleMenuEvent(gui, menu, event):
+          return true
+  
+  # Теперь обрабатываем остальные виджеты в обратном порядке (сверху вниз)
   for i in countdown(gui.widgets.len - 1, 0):
     let widget = gui.widgets[i]
     if not widget.visible or not widget.enabled:
@@ -2224,6 +3456,27 @@ proc handleGuiEvent*(gui: GuiManager, event: ptr SdlEvent): bool =
       handled = handleSliderEvent(Slider(widget), event)
     elif widget of ListBox:
       handled = handleListBoxEvent(ListBox(widget), event)
+    elif widget of ComboBox:
+      # Закрытые ComboBox обрабатываем как обычно
+      let combo = ComboBox(widget)
+      if not combo.isOpen:
+        handled = handleComboBoxEvent(gui, combo, event)
+    elif widget of SpinBox:
+      handled = handleSpinBoxEvent(gui, SpinBox(widget), event)
+    elif widget of TabControl:
+      handled = handleTabControlEvent(gui, TabControl(widget), event)
+    elif widget of Menu:
+      # Закрытые Menu обрабатываем как обычно
+      let menu = Menu(widget)
+      if not menu.isOpen:
+        handled = handleMenuEvent(gui, menu, event)
+    elif widget of MenuBar:
+      # MenuBar с открытым меню уже обработан в приоритетной секции
+      let menubar = MenuBar(widget)
+      if menubar.openMenu < 0:
+        handled = handleMenuBarEvent(gui, menubar, event)
+    elif widget of ToolBar:
+      handled = handleToolBarEvent(gui, ToolBar(widget), event)
     
     if handled:
       clickHandled = true
@@ -2277,12 +3530,18 @@ proc showConfirmDialog*(gui: GuiManager, title, message: string,
 export Widget, Button, TextField, TextArea, CheckBox, RadioButton
 export Slider, ProgressBar, Label, Panel, ListBox, ComboBox, SpinBox
 export Dialog, DialogType, DialogButton, TabControl, Tab
-export Menu, MenuItem, ToolBar, ToolTip
+export Menu, MenuItem, MenuBar, ToolBar, ToolTip, StatusBar
 export GuiManager, GuiTheme, WidgetState, Alignment
 export createGuiManager, addWidget, removeWidget, findWidgetById, setFocus, updateCursorBlink
 export createButton, createTextField, createTextArea, createCheckBox, createRadioButton
 export createSlider, createProgressBar, createLabel, createPanel, createListBox
+export createComboBox, createSpinBox, createTabControl, createTab, addTab
+export createMenu, createMenuItem, createMenuSeparator, addMenuItem
+export createMenuBar, addMenu
+export createToolBar, addToolButton
+export createStatusBar, setText, setSections
 export createDialog, registerRadioButton
+export updateTooltip, checkTooltipHover
 export renderGui, handleGuiEvent
 export showInfoDialog, showWarningDialog, showErrorDialog
 export showQuestionDialog, showConfirmDialog
