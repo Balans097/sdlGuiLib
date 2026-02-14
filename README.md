@@ -12,6 +12,15 @@
 
 `sdlGuiLib` is a lightweight, cross-platform graphical user interface library for Nim that uses **SDL3** as the rendering backend.
 
+
+
+## How it looks on Fedora Linux
+Light theme:
+![How it looks on Fedora Linux](./screenshots/LightTheme.png)
+Dark theme:
+![How it looks on Fedora Linux](./screenshots/DarkTheme.png)
+
+
 Main goals:
 
 - Easy integration into existing SDL3 applications
