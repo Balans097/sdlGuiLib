@@ -1803,6 +1803,9 @@ proc handleSliderEvent*(slider: Slider, event: ptr SdlEvent): bool =
   if not slider.enabled or not slider.visible:
     return false
   
+  # Обновляем позицию бегунка перед обработкой событий
+  updateSliderThumb(slider)
+  
   case event.type:
   of SDL_EVENT_MOUSE_BUTTON_DOWN:
     let x = event.button.x
@@ -2022,7 +2025,43 @@ proc renderPanel*(gui: GuiManager, panel: Panel) =
     elif child of ListBox:
       renderListBox(gui, ListBox(child))
     elif child of ComboBox:
-      renderComboBox(gui, ComboBox(child))
+      # Рендерим ComboBox, но БЕЗ выпадающего списка
+      let combo = ComboBox(child)
+      if not combo.visible:
+        child.rect.x = origX
+        child.rect.y = origY
+        continue
+      
+      # Основное поле
+      var bgColor = combo.bgColor
+      if combo.state == wsHover or combo.isOpen:
+        bgColor = combo.hoverColor
+      
+      renderFillRect(gui.renderer, combo.rect, bgColor)
+      renderRect(gui.renderer, combo.rect, combo.borderColor, gui.theme.borderWidth)
+      
+      # Текст выбранного элемента
+      if combo.selectedIndex >= 0 and combo.selectedIndex < combo.items.len:
+        let text = combo.items[combo.selectedIndex]
+        let textSize = getTextSize(gui.theme.font, text)
+        let textX = combo.rect.x.int + gui.theme.padding
+        let textY = combo.rect.y.int + (combo.rect.h.int - textSize.h) div 2
+        discard renderText(gui.renderer, gui.theme.font, text, textX, textY, combo.textColor)
+      
+      # Стрелка вниз
+      let arrowSize = 8
+      let arrowX = combo.rect.x.int + combo.rect.w.int - arrowSize - gui.theme.padding
+      let arrowY = combo.rect.y.int + (combo.rect.h.int - arrowSize) div 2
+      
+      # Рисуем треугольник
+      setRenderColor(gui.renderer, combo.textColor)
+      for i in 0..<arrowSize:
+        let y = arrowY + i
+        let x1 = arrowX + (arrowSize - i) div 2
+        let x2 = arrowX + arrowSize - (arrowSize - i) div 2
+        discard SDL_RenderLine(gui.renderer, x1.cfloat, y.cfloat, x2.cfloat, y.cfloat)
+      
+      # Выпадающий список откладывается на потом (рендерится в renderGui)
     elif child of SpinBox:
       renderSpinBox(gui, SpinBox(child))
     elif child of TabControl:
@@ -2113,6 +2152,9 @@ proc handlePanelEvent*(gui: GuiManager, panel: Panel, event: ptr SdlEvent): bool
     
     elif child of RadioButton:
       handled = handleRadioButtonEvent(gui, RadioButton(child), event)
+    
+    elif child of Slider:
+      handled = handleSliderEvent(Slider(child), event)
     
     elif child of ComboBox:
       handled = handleComboBoxEvent(gui, ComboBox(child), event)
@@ -3168,12 +3210,8 @@ proc createToolBar*(id: string, x, y, w, h: int): ToolBar =
 
 proc addToolButton*(toolbar: ToolBar, button: Button) =
   ## Добавить кнопку на панель инструментов
-  # Позиционируем кнопку
-  let index = toolbar.buttons.len
-  let x = toolbar.rect.x.int + toolbar.spacing + index * (toolbar.buttonSize + toolbar.spacing)
-  let y = toolbar.rect.y.int + toolbar.spacing
-  
-  button.rect = initRect(x, y, toolbar.buttonSize, toolbar.buttonSize)
+  # Просто добавляем кнопку, не меняя её размер и позицию
+  # Позиция и размер должны быть заданы при создании кнопки
   toolbar.buttons.add(button)
 
 proc renderToolBar*(gui: GuiManager, toolbar: ToolBar) =
@@ -3185,18 +3223,46 @@ proc renderToolBar*(gui: GuiManager, toolbar: ToolBar) =
   renderFillRect(gui.renderer, toolbar.rect, toolbar.bgColor)
   renderRect(gui.renderer, toolbar.rect, toolbar.borderColor, 1)
   
-  # Кнопки
+  # Кнопки - рендерим с учетом позиции toolbar
   for button in toolbar.buttons:
+    # Сохраняем оригинальные координаты (относительные)
+    let origX = button.rect.x
+    let origY = button.rect.y
+    
+    # Преобразуем в абсолютные координаты
+    button.rect.x = toolbar.rect.x + origX
+    button.rect.y = toolbar.rect.y + origY
+    
+    # Рендерим кнопку
     renderButton(gui, button)
+    
+    # Восстанавливаем относительные координаты
+    button.rect.x = origX
+    button.rect.y = origY
 
 proc handleToolBarEvent*(gui: GuiManager, toolbar: ToolBar, event: ptr SdlEvent): bool =
   ## Обработать событие для панели инструментов
   if not toolbar.visible or not toolbar.enabled:
     return false
   
-  # Передаём события кнопкам
+  # Передаём события кнопкам с учетом относительных координат
   for button in toolbar.buttons:
-    if handleButtonEvent(button, event):
+    # Сохраняем оригинальные координаты (относительные)
+    let origX = button.rect.x
+    let origY = button.rect.y
+    
+    # Преобразуем в абсолютные координаты
+    button.rect.x = toolbar.rect.x + origX
+    button.rect.y = toolbar.rect.y + origY
+    
+    # Обрабатываем событие
+    let handled = handleButtonEvent(button, event)
+    
+    # Восстанавливаем относительные координаты
+    button.rect.x = origX
+    button.rect.y = origY
+    
+    if handled:
       return true
   
   return false
@@ -3492,9 +3558,23 @@ proc renderGui*(gui: GuiManager) =
   gui.updateCursorBlink()
   
   # Сначала рендерим все виджеты кроме открытых ComboBox, Menu и выпадающих меню MenuBar
-  var openComboBoxes: seq[ComboBox] = @[]
+  var openComboBoxes: seq[tuple[combo: ComboBox, absX: int, absY: int]] = @[]
   var openMenus: seq[Menu] = @[]
   var openMenuBars: seq[MenuBar] = @[]
+  
+  # Вспомогательная функция для сбора ComboBox из Panel
+  proc collectFromPanel(panel: Panel, offsetX, offsetY: int) =
+    for child in panel.children:
+      if not child.visible:
+        continue
+      if child of Panel:
+        let childPanel = Panel(child)
+        collectFromPanel(childPanel, offsetX + panel.rect.x.int, offsetY + panel.rect.y.int)
+      elif child of ComboBox:
+        let combo = ComboBox(child)
+        if combo.isOpen:
+          openComboBoxes.add((combo, offsetX + panel.rect.x.int + child.rect.x.int, 
+                              offsetY + panel.rect.y.int + child.rect.y.int))
   
   for widget in gui.widgets:
     if not widget.visible:
@@ -3504,12 +3584,17 @@ proc renderGui*(gui: GuiManager) =
     if widget.parent != nil:
       continue
     
-    # Откладываем рендеринг открытых ComboBox и Menu
+    # Собираем открытые ComboBox из Panel
+    if widget of Panel:
+      collectFromPanel(Panel(widget), 0, 0)
+    
+    # Откладываем рендеринг открытых ComboBox и Menu (но рендерим их сейчас)
     if widget of ComboBox:
       let combo = ComboBox(widget)
+      renderComboBox(gui, combo)
       if combo.isOpen:
-        openComboBoxes.add(combo)
-        continue
+        openComboBoxes.add((combo, combo.rect.x.int, combo.rect.y.int))
+      continue
     elif widget of Menu:
       let menu = Menu(widget)
       if menu.isOpen:
@@ -3541,8 +3626,6 @@ proc renderGui*(gui: GuiManager) =
       renderPanel(gui, Panel(widget))
     elif widget of ListBox:
       renderListBox(gui, ListBox(widget))
-    elif widget of ComboBox:
-      renderComboBox(gui, ComboBox(widget))
     elif widget of SpinBox:
       renderSpinBox(gui, SpinBox(widget))
     elif widget of TabControl:
@@ -3556,9 +3639,50 @@ proc renderGui*(gui: GuiManager) =
     elif widget of ToolBar:
       renderToolBar(gui, ToolBar(widget))
   
-  # Теперь рендерим открытые ComboBox поверх всего
-  for combo in openComboBoxes:
-    renderComboBox(gui, combo)
+  # Теперь рендерим ТОЛЬКО выпадающие списки открытых ComboBox поверх всего
+  for item in openComboBoxes:
+    let combo = item.combo
+    let absX = item.absX
+    let absY = item.absY
+    
+    if combo.isOpen and combo.items.len > 0:
+      let itemHeight = max(20, combo.rect.h.int)
+      let maxItems = min(combo.items.len, combo.dropdownHeight div itemHeight)
+      let dropHeight = maxItems * itemHeight
+      
+      let dropRect = initRect(
+        absX,
+        absY + combo.rect.h.int,
+        combo.rect.w.int,
+        dropHeight
+      )
+      
+      # Фон списка
+      renderFillRect(gui.renderer, dropRect, combo.bgColor)
+      renderRect(gui.renderer, dropRect, combo.borderColor, gui.theme.borderWidth)
+      
+      # Элементы
+      for i in 0..<maxItems:
+        let itemY = dropRect.y.int + i * itemHeight
+        let itemRect = initRect(dropRect.x.int, itemY, dropRect.w.int, itemHeight)
+        
+        # Подсветка наведённого элемента
+        if i == combo.hoveredIndex:
+          renderFillRect(gui.renderer, itemRect, combo.hoverColor)
+          # Добавляем толстый яркий зелёный контур для наведённого элемента
+          let borderColor = initColor(0, 255, 0)  # Яркий зелёный цвет
+          renderRect(gui.renderer, itemRect, borderColor, 2)  # Толщина 2 пикселя
+        elif i == combo.selectedIndex:
+          renderFillRect(gui.renderer, itemRect, combo.selectedColor)
+          renderRect(gui.renderer, itemRect, combo.selectedColor, 1)
+        
+        # Текст элемента
+        let text = combo.items[i]
+        let textSize = getTextSize(gui.theme.font, text)
+        let textX = itemRect.x.int + gui.theme.padding
+        let textY = itemY + (itemHeight - textSize.h) div 2
+        let textColor = if i == combo.selectedIndex: initColor(255, 255, 255) else: combo.textColor
+        discard renderText(gui.renderer, gui.theme.font, text, textX, textY, textColor)
   
   # Рендерим открытые Menu поверх всего
   for menu in openMenus:
@@ -3739,3 +3863,13 @@ export showInfoDialog, showWarningDialog, showErrorDialog
 export showQuestionDialog, showConfirmDialog
 export createDefaultTheme, createDarkTheme
 export initColor, initRect, initFRect
+
+
+
+
+
+
+
+
+# nim c -d:release sdlGuiLib.nim
+

@@ -1,6 +1,6 @@
 ################################################################
 ##           Media Application
-##    Медиа-приложение с панелями и вкладками
+##    Медиаприложение с панелями и вкладками
 ################################################################
 
 import libSDL
@@ -19,7 +19,7 @@ if not TTF_Init():
 
 # Создание окна
 let window = SDL_CreateWindow(
-  "Медиа Приложение",
+  "Медиаприложение — эффективная обработка видеоконтента",
   1280, 720,
   SDL_WINDOW_RESIZABLE
 )
@@ -223,7 +223,7 @@ menuBar.addMenu(menuHelp)
 gui.addWidget(menuBar)
 
 # =============================================================================
-# ПАНЕЛЬ ИНСТРУМЕНТОВ (ToolBar) с кнопками-вкладками
+# ПАНЕЛЬ ИНСТРУМЕНТОВ (ToolBar) с кнопками-вкладками - ИСПРАВЛЕНО
 # =============================================================================
 
 let toolBar = createToolBar("toolbar", 0, 30, 1280, 50)
@@ -231,40 +231,51 @@ let toolBar = createToolBar("toolbar", 0, 30, 1280, 50)
 # Forward declaration для updatePanelVisibility
 proc updatePanelVisibility()
 
+# ИСПРАВЛЕНИЕ: позиции кнопок вычисляются правильно
+const buttonSpacing = 10
+var btnX = buttonSpacing
+const btnY = 5  # относительно toolbar (toolbar начинается с Y=30)
+const btnWidth = 160
+const btnHeight = 40
+
 # Кнопка "Начало"
-let btnStart = createButton("btnStart", 10, 5, 120, 40, "📋 Начало")
+let btnStart = createButton("btnStart", btnX, btnY, btnWidth, btnHeight, "Начало")
 btnStart.onClick = proc(btn: Button) =
   currentTab = tabStart
   updatePanelVisibility()
   echo "[Клик] Переключение на вкладку: Начало"
 toolBar.addToolButton(btnStart)
+btnX += btnWidth + buttonSpacing
 
 # Кнопка "Видео"
-let btnVideo = createButton("btnVideo", 145, 5, 120, 40, "🎬 Видео")
+let btnVideo = createButton("btnVideo", btnX, btnY, btnWidth, btnHeight, "Видео")
 btnVideo.onClick = proc(btn: Button) =
   currentTab = tabVideo
   updatePanelVisibility()
   echo "[Клик] Переключение на вкладку: Видео"
 toolBar.addToolButton(btnVideo)
+btnX += btnWidth + buttonSpacing
 
 # Кнопка "Аудио"
-let btnAudio = createButton("btnAudio", 280, 5, 120, 40, "🔊 Аудио")
+let btnAudio = createButton("btnAudio", btnX, btnY, btnWidth, btnHeight, "Аудио")
 btnAudio.onClick = proc(btn: Button) =
   currentTab = tabAudio
   updatePanelVisibility()
   echo "[Клик] Переключение на вкладку: Аудио"
 toolBar.addToolButton(btnAudio)
+btnX += btnWidth + buttonSpacing
 
 # Кнопка "Субтитры"
-let btnSubtitles = createButton("btnSubtitles", 415, 5, 120, 40, "💬 Субтитры")
+let btnSubtitles = createButton("btnSubtitles", btnX, btnY, btnWidth, btnHeight, "Субтитры")
 btnSubtitles.onClick = proc(btn: Button) =
   currentTab = tabSubtitles
   updatePanelVisibility()
   echo "[Клик] Переключение на вкладку: Субтитры"
 toolBar.addToolButton(btnSubtitles)
+btnX += btnWidth + buttonSpacing
 
 # Кнопка "Прочее"
-let btnOther = createButton("btnOther", 550, 5, 120, 40, "⚙️ Прочее")
+let btnOther = createButton("btnOther", btnX, btnY, btnWidth, btnHeight, "Прочее")
 btnOther.onClick = proc(btn: Button) =
   currentTab = tabOther
   updatePanelVisibility()
@@ -278,290 +289,354 @@ gui.addWidget(toolBar)
 # =============================================================================
 
 # ===== ПАНЕЛЬ "НАЧАЛО" =====
-let panelStart = createPanel("panelStart", 10, 90, 1260, 560)
-panelStart.bgColor = initColor(245, 245, 245)
-panelStart.borderColor = initColor(180, 180, 180)
+let panelStart = createPanel("panelStart", 10, 90, 1260, 600)
+panelStart.bgColor = initColor(255, 255, 255)
+panelStart.borderColor = initColor(200, 200, 200)
 
-let labelStartTitle = createLabel("labelStartTitle", 20, 20, 600, 30, "Добро пожаловать в Медиа Приложение!")
-labelStartTitle.textColor = initColor(0, 100, 200)
+let labelStartTitle = createLabel("lblStartTitle", 20, 20, 1220, 40, "Добро пожаловать в Медиа Приложение!")
+labelStartTitle.textColor = initColor(0, 0, 128)
+labelStartTitle.textAlign = alignCenter
 panelStart.addChild(labelStartTitle)
 
-let labelStartInfo = createLabel("labelStartInfo", 20, 60, 800, 30, "Начните работу с создания нового проекта или откройте существующий.")
+let labelStartInfo = createLabel("lblStartInfo", 20, 70, 1220, 60,
+  "Это приложение позволяет работать с различными медиафайлами:\n" &
+  "видео, аудио и субтитрами. Используйте вкладки вверху для навигации.")
+labelStartInfo.wordWrap = true
 panelStart.addChild(labelStartInfo)
 
-let btnStartNew = createButton("btnStartNew", 20, 110, 200, 40, "Создать проект")
-btnStartNew.bgColor = initColor(0, 120, 215)
-btnStartNew.textColor = initColor(255, 255, 255)
-btnStartNew.onClick = proc(btn: Button) =
-  gui.showInfoDialog("Начало", "Создание нового проекта...")
-  echo "[Панель Начало] Создать проект"
-panelStart.addChild(btnStartNew)
+let btnStartNewProject = createButton("btnStartNew", 400, 150, 200, 50, "Создать новый проект")
+btnStartNewProject.bgColor = initColor(0, 120, 215)
+btnStartNewProject.textColor = initColor(255, 255, 255)
+btnStartNewProject.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Файл", "Создать новый проект")
+panelStart.addChild(btnStartNewProject)
 
-let btnStartOpen = createButton("btnStartOpen", 230, 110, 200, 40, "Открыть проект")
-btnStartOpen.onClick = proc(btn: Button) =
-  gui.showInfoDialog("Начало", "Открытие существующего проекта...")
-  echo "[Панель Начало] Открыть проект"
-panelStart.addChild(btnStartOpen)
+let btnStartOpenProject = createButton("btnStartOpen", 640, 150, 200, 50, "Открыть проект")
+btnStartOpenProject.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Файл", "Открыть существующий проект")
+panelStart.addChild(btnStartOpenProject)
 
-let labelStartRecent = createLabel("labelStartRecent", 20, 170, 400, 30, "Недавние проекты:")
-panelStart.addChild(labelStartRecent)
+let labelStartQuickActions = createLabel("lblQuickActions", 20, 230, 1220, 30, "Быстрые действия:")
+labelStartQuickActions.textColor = initColor(0, 0, 0)
+panelStart.addChild(labelStartQuickActions)
 
-let listStartRecent = createListBox("listStartRecent", 20, 210, 600, 150)
-listStartRecent.items = @[
-  "Проект_1.media",
-  "Проект_2.media",
-  "Видео_монтаж_01.media",
-  "Аудио_редактирование.media"
+let listQuickActions = createListBox("listQuickActions", 20, 270, 600, 300)
+listQuickActions.items = @[
+  "Добавить видеофайл",
+  "Добавить аудиофайл",
+  "Добавить файл субтитров",
+  "Конвертировать файл",
+  "Экспортировать проект",
+  "Настройки приложения",
+  "Справка и документация"
 ]
-listStartRecent.onSelect = proc(lb: ListBox, index: int) =
-  echo "[Панель Начало] Выбран проект: ", lb.items[index]
-  gui.showInfoDialog("Открыть", "Открыть проект: " & lb.items[index] & "?")
-panelStart.addChild(listStartRecent)
+listQuickActions.onSelect = proc(lb: ListBox, idx: int) =
+  echo "[QuickActions] Выбрано: ", lb.items[idx]
+  gui.showInfoDialog("Быстрое действие", "Выбрано: " & lb.items[idx])
+panelStart.addChild(listQuickActions)
+
+let labelRecentProjects = createLabel("lblRecent", 650, 270, 500, 30, "Недавние проекты:")
+panelStart.addChild(labelRecentProjects)
+
+let listRecentProjects = createListBox("listRecent", 650, 310, 580, 260)
+listRecentProjects.items = @[
+  "Проект 1.media",
+  "Проект 2.media",
+  "Видео презентация.media"
+]
+listRecentProjects.onSelect = proc(lb: ListBox, idx: int) =
+  echo "[Recent] Выбран проект: ", lb.items[idx]
+  gui.showInfoDialog("Недавние проекты", "Открыть проект: " & lb.items[idx])
+panelStart.addChild(listRecentProjects)
 
 gui.addWidget(panelStart)
 
 # ===== ПАНЕЛЬ "ВИДЕО" =====
-let panelVideo = createPanel("panelVideo", 10, 90, 1260, 560)
-panelVideo.bgColor = initColor(240, 248, 255)
+let panelVideo = createPanel("panelVideo", 10, 90, 1260, 600)
+panelVideo.bgColor = initColor(250, 250, 255)
 panelVideo.borderColor = initColor(100, 149, 237)
+panelVideo.visible = false
 
-let labelVideoTitle = createLabel("labelVideoTitle", 20, 20, 600, 30, "Настройки видео")
+let labelVideoTitle = createLabel("lblVideoTitle", 20, 20, 1220, 40, "Редактирование видео")
 labelVideoTitle.textColor = initColor(0, 0, 128)
+labelVideoTitle.textAlign = alignCenter
 panelVideo.addChild(labelVideoTitle)
 
-let labelVideoFormat = createLabel("labelVideoFormat", 20, 70, 150, 30, "Формат видео:")
-panelVideo.addChild(labelVideoFormat)
+let labelVideoFile = createLabel("lblVideoFile", 20, 80, 150, 30, "Видеофайл:")
+panelVideo.addChild(labelVideoFile)
 
-let comboVideoFormat = createComboBox("comboVideoFormat", 180, 70, 200, 30)
-comboVideoFormat.items = @["MP4", "AVI", "MKV", "MOV", "WebM"]
-comboVideoFormat.selectedIndex = 0
-comboVideoFormat.onSelect = proc(combo: ComboBox, index: int) =
-  echo "[Панель Видео] Выбран формат: ", combo.items[index]
-panelVideo.addChild(comboVideoFormat)
+let fieldVideoFile = createTextField("fieldVideoFile", 180, 80, 800, 30)
+fieldVideoFile.placeholder = "Путь к видеофайлу..."
+panelVideo.addChild(fieldVideoFile)
 
-let labelVideoCodec = createLabel("labelVideoCodec", 20, 120, 150, 30, "Кодек:")
-panelVideo.addChild(labelVideoCodec)
+let btnVideoBrowse = createButton("btnVideoBrowse", 1000, 80, 120, 30, "Обзор...")
+btnVideoBrowse.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Видео", "Выбрать видеофайл")
+panelVideo.addChild(btnVideoBrowse)
 
-let comboVideoCodec = createComboBox("comboVideoCodec", 180, 120, 200, 30)
-comboVideoCodec.items = @["H.264", "H.265", "VP9", "AV1"]
-comboVideoCodec.selectedIndex = 0
-panelVideo.addChild(comboVideoCodec)
-
-let labelVideoResolution = createLabel("labelVideoResolution", 20, 170, 150, 30, "Разрешение:")
+let labelVideoResolution = createLabel("lblVideoRes", 20, 130, 150, 30, "Разрешение:")
 panelVideo.addChild(labelVideoResolution)
 
-let comboVideoResolution = createComboBox("comboVideoResolution", 180, 170, 200, 30)
-comboVideoResolution.items = @["1920x1080", "1280x720", "3840x2160", "2560x1440"]
+let comboVideoResolution = createComboBox("comboVideoRes", 180, 130, 200, 30)
+comboVideoResolution.items = @["1920x1080", "1280x720", "854x480", "640x360"]
 comboVideoResolution.selectedIndex = 0
+comboVideoResolution.onSelect = proc(cb: ComboBox, idx: int) =
+  echo "[Video] Выбрано разрешение: ", cb.items[idx]
 panelVideo.addChild(comboVideoResolution)
 
-let labelVideoBitrate = createLabel("labelVideoBitrate", 20, 220, 150, 30, "Битрейт (Mbps):")
+let labelVideoCodec = createLabel("lblVideoCodec", 400, 130, 150, 30, "Кодек:")
+panelVideo.addChild(labelVideoCodec)
+
+let comboVideoCodec = createComboBox("comboVideoCodec", 560, 130, 200, 30)
+comboVideoCodec.items = @["H.264", "H.265", "VP9", "AV1"]
+comboVideoCodec.selectedIndex = 0
+comboVideoCodec.onSelect = proc(cb: ComboBox, idx: int) =
+  echo "[Video] Выбран кодек: ", cb.items[idx]
+panelVideo.addChild(comboVideoCodec)
+
+let labelVideoFPS = createLabel("lblVideoFPS", 20, 180, 150, 30, "FPS:")
+panelVideo.addChild(labelVideoFPS)
+
+let spinVideoFPS = createSpinBox("spinVideoFPS", 180, 180, 150, 30, 15.0, 120.0)
+spinVideoFPS.value = 30.0
+spinVideoFPS.step = 1.0
+spinVideoFPS.decimals = 0
+spinVideoFPS.onChange = proc(sb: SpinBox, val: float) =
+  echo "[Video] FPS установлен на: ", val
+panelVideo.addChild(spinVideoFPS)
+
+let labelVideoBitrate = createLabel("lblVideoBitrate", 400, 180, 150, 30, "Битрейт (kbps):")
 panelVideo.addChild(labelVideoBitrate)
 
-let spinVideoBitrate = createSpinBox("spinVideoBitrate", 180, 220, 150, 30, 0.5, 50.0, 1)
-spinVideoBitrate.value = 5.0
-panelVideo.addChild(spinVideoBitrate)
+let sliderVideoBitrate = createSlider("sliderVideoBitrate", 560, 180, 400, 30, 500.0, 20000.0)
+sliderVideoBitrate.value = 5000.0
+sliderVideoBitrate.onChange = proc(s: Slider, val: float) =
+  echo "[Video] Битрейт: ", val, " kbps"
+panelVideo.addChild(sliderVideoBitrate)
 
-let labelVideoFps = createLabel("labelVideoFps", 20, 270, 150, 30, "FPS:")
-panelVideo.addChild(labelVideoFps)
+let labelVideoPreview = createLabel("lblVideoPreview", 20, 240, 1220, 30, "Предпросмотр:")
+panelVideo.addChild(labelVideoPreview)
 
-let spinVideoFps = createSpinBox("spinVideoFps", 180, 270, 150, 30, 24.0, 120.0, 0)
-spinVideoFps.value = 30.0
-panelVideo.addChild(spinVideoFps)
+let panelVideoPreview = createPanel("panelVideoPreview", 20, 280, 1220, 250)
+panelVideoPreview.bgColor = initColor(0, 0, 0)
+panelVideoPreview.borderColor = initColor(128, 128, 128)
+let labelVideoPreviewPlaceholder = createLabel("lblVidPreview", 400, 100, 400, 50, "[Область предпросмотра видео]")
+labelVideoPreviewPlaceholder.textColor = initColor(200, 200, 200)
+labelVideoPreviewPlaceholder.textAlign = alignCenter
+panelVideoPreview.addChild(labelVideoPreviewPlaceholder)
+panelVideo.addChild(panelVideoPreview)
 
-let cbVideoDeinterlace = createCheckBox("cbVideoDeinterlace", 20, 320, "Деинтерлейс")
-panelVideo.addChild(cbVideoDeinterlace)
-
-let cbVideoHwAccel = createCheckBox("cbVideoHwAccel", 20, 350, "Аппаратное ускорение")
-cbVideoHwAccel.checked = true
-panelVideo.addChild(cbVideoHwAccel)
-
-let btnVideoApply = createButton("btnVideoApply", 20, 400, 150, 40, "Применить")
-btnVideoApply.bgColor = initColor(34, 139, 34)
-btnVideoApply.textColor = initColor(255, 255, 255)
-btnVideoApply.onClick = proc(btn: Button) =
-  echo "[Панель Видео] Применить настройки"
-  gui.showInfoDialog("Видео", "Настройки видео применены")
-panelVideo.addChild(btnVideoApply)
+let btnVideoProcess = createButton("btnVideoProcess", 500, 550, 250, 40, "Обработать видео")
+btnVideoProcess.bgColor = initColor(0, 128, 0)
+btnVideoProcess.textColor = initColor(255, 255, 255)
+btnVideoProcess.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Видео", "Начать обработку видеофайла")
+panelVideo.addChild(btnVideoProcess)
 
 gui.addWidget(panelVideo)
 
 # ===== ПАНЕЛЬ "АУДИО" =====
-let panelAudio = createPanel("panelAudio", 10, 90, 1260, 560)
+let panelAudio = createPanel("panelAudio", 10, 90, 1260, 600)
 panelAudio.bgColor = initColor(255, 250, 240)
 panelAudio.borderColor = initColor(255, 140, 0)
+panelAudio.visible = false
 
-let labelAudioTitle = createLabel("labelAudioTitle", 20, 20, 600, 30, "Настройки аудио")
+let labelAudioTitle = createLabel("lblAudioTitle", 20, 20, 1220, 40, "Редактирование аудио")
 labelAudioTitle.textColor = initColor(139, 69, 19)
+labelAudioTitle.textAlign = alignCenter
 panelAudio.addChild(labelAudioTitle)
 
-let labelAudioCodec = createLabel("labelAudioCodec", 20, 70, 150, 30, "Аудио кодек:")
-panelAudio.addChild(labelAudioCodec)
+let labelAudioFile = createLabel("lblAudioFile", 20, 80, 150, 30, "Аудиофайл:")
+panelAudio.addChild(labelAudioFile)
 
-let comboAudioCodec = createComboBox("comboAudioCodec", 180, 70, 200, 30)
-comboAudioCodec.items = @["AAC", "MP3", "FLAC", "Vorbis", "Opus"]
-comboAudioCodec.selectedIndex = 0
-panelAudio.addChild(comboAudioCodec)
+let fieldAudioFile = createTextField("fieldAudioFile", 180, 80, 800, 30)
+fieldAudioFile.placeholder = "Путь к аудиофайлу..."
+panelAudio.addChild(fieldAudioFile)
 
-let labelAudioBitrate = createLabel("labelAudioBitrate", 20, 120, 150, 30, "Битрейт (kbps):")
-panelAudio.addChild(labelAudioBitrate)
+let btnAudioBrowse = createButton("btnAudioBrowse", 1000, 80, 120, 30, "Обзор...")
+btnAudioBrowse.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Аудио", "Выбрать аудиофайл")
+panelAudio.addChild(btnAudioBrowse)
 
-let spinAudioBitrate = createSpinBox("spinAudioBitrate", 180, 120, 150, 30, 64.0, 320.0, 0)
-spinAudioBitrate.value = 192.0
-panelAudio.addChild(spinAudioBitrate)
+let labelAudioFormat = createLabel("lblAudioFormat", 20, 130, 150, 30, "Формат:")
+panelAudio.addChild(labelAudioFormat)
 
-let labelAudioSampleRate = createLabel("labelAudioSampleRate", 20, 170, 150, 30, "Частота (Hz):")
-panelAudio.addChild(labelAudioSampleRate)
+let comboAudioFormat = createComboBox("comboAudioFormat", 180, 130, 200, 30)
+comboAudioFormat.items = @["MP3", "AAC", "FLAC", "WAV", "OGG"]
+comboAudioFormat.selectedIndex = 0
+comboAudioFormat.onSelect = proc(cb: ComboBox, idx: int) =
+  echo "[Audio] Выбран формат: ", cb.items[idx]
+panelAudio.addChild(comboAudioFormat)
 
-let comboAudioSampleRate = createComboBox("comboAudioSampleRate", 180, 170, 200, 30)
-comboAudioSampleRate.items = @["44100", "48000", "96000"]
-comboAudioSampleRate.selectedIndex = 1
-panelAudio.addChild(comboAudioSampleRate)
+let labelAudioQuality = createLabel("lblAudioQuality", 400, 130, 150, 30, "Качество:")
+panelAudio.addChild(labelAudioQuality)
 
-let labelAudioChannels = createLabel("labelAudioChannels", 20, 220, 150, 30, "Каналы:")
-panelAudio.addChild(labelAudioChannels)
+let sliderAudioQuality = createSlider("sliderAudioQuality", 560, 130, 400, 30, 0.0, 10.0)
+sliderAudioQuality.value = 7.0
+sliderAudioQuality.onChange = proc(s: Slider, val: float) =
+  echo "[Audio] Качество: ", val
+panelAudio.addChild(sliderAudioQuality)
 
-let comboAudioChannels = createComboBox("comboAudioChannels", 180, 220, 200, 30)
-comboAudioChannels.items = @["Mono", "Stereo", "5.1", "7.1"]
-comboAudioChannels.selectedIndex = 1
-panelAudio.addChild(comboAudioChannels)
-
-let labelAudioVolume = createLabel("labelAudioVolume", 20, 270, 150, 30, "Громкость:")
-panelAudio.addChild(labelAudioVolume)
-
-let sliderAudioVolume = createSlider("sliderAudioVolume", 180, 270, 300, 30, 0.0, 100.0)
-sliderAudioVolume.value = 100.0
-panelAudio.addChild(sliderAudioVolume)
-
-let cbAudioNormalize = createCheckBox("cbAudioNormalize", 20, 320, "Нормализация громкости")
+let cbAudioNormalize = createCheckBox("cbAudioNormalize", 20, 180, "Нормализовать громкость")
+cbAudioNormalize.onChange = proc(cb: CheckBox, checked: bool) =
+  echo "[Audio] Нормализация: ", checked
 panelAudio.addChild(cbAudioNormalize)
 
-let cbAudioNoiseReduction = createCheckBox("cbAudioNoiseReduction", 20, 350, "Шумоподавление")
-panelAudio.addChild(cbAudioNoiseReduction)
+let cbAudioRemoveNoise = createCheckBox("cbAudioNoise", 20, 220, "Удалить шум")
+cbAudioRemoveNoise.onChange = proc(cb: CheckBox, checked: bool) =
+  echo "[Audio] Удаление шума: ", checked
+panelAudio.addChild(cbAudioRemoveNoise)
 
-let btnAudioApply = createButton("btnAudioApply", 20, 400, 150, 40, "Применить")
-btnAudioApply.bgColor = initColor(34, 139, 34)
-btnAudioApply.textColor = initColor(255, 255, 255)
-btnAudioApply.onClick = proc(btn: Button) =
-  echo "[Панель Аудио] Применить настройки"
-  gui.showInfoDialog("Аудио", "Настройки аудио применены")
-panelAudio.addChild(btnAudioApply)
+let labelAudioWaveform = createLabel("lblAudioWaveform", 20, 270, 1220, 30, "Форма волны:")
+panelAudio.addChild(labelAudioWaveform)
+
+let panelAudioWaveform = createPanel("panelAudioWaveform", 20, 310, 1220, 200)
+panelAudioWaveform.bgColor = initColor(30, 30, 30)
+panelAudioWaveform.borderColor = initColor(128, 128, 128)
+let labelAudioWaveformPlaceholder = createLabel("lblAudWave", 400, 80, 400, 40, "[Форма аудиоволны]")
+labelAudioWaveformPlaceholder.textColor = initColor(0, 255, 0)
+labelAudioWaveformPlaceholder.textAlign = alignCenter
+panelAudioWaveform.addChild(labelAudioWaveformPlaceholder)
+panelAudio.addChild(panelAudioWaveform)
+
+let btnAudioProcess = createButton("btnAudioProcess", 500, 530, 250, 40, "Обработать аудио")
+btnAudioProcess.bgColor = initColor(255, 140, 0)
+btnAudioProcess.textColor = initColor(255, 255, 255)
+btnAudioProcess.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Аудио", "Начать обработку аудиофайла")
+panelAudio.addChild(btnAudioProcess)
 
 gui.addWidget(panelAudio)
 
 # ===== ПАНЕЛЬ "СУБТИТРЫ" =====
-let panelSubtitles = createPanel("panelSubtitles", 10, 90, 1260, 560)
-panelSubtitles.bgColor = initColor(255, 245, 238)
-panelSubtitles.borderColor = initColor(218, 165, 32)
+let panelSubtitles = createPanel("panelSubtitles", 10, 90, 1260, 600)
+panelSubtitles.bgColor = initColor(240, 255, 240)
+panelSubtitles.borderColor = initColor(34, 139, 34)
+panelSubtitles.visible = false
 
-let labelSubtitlesTitle = createLabel("labelSubtitlesTitle", 20, 20, 600, 30, "Работа с субтитрами")
-labelSubtitlesTitle.textColor = initColor(184, 134, 11)
-panelSubtitles.addChild(labelSubtitlesTitle)
+let labelSubsTitle = createLabel("lblSubsTitle", 20, 20, 1220, 40, "Работа с субтитрами")
+labelSubsTitle.textColor = initColor(0, 100, 0)
+labelSubsTitle.textAlign = alignCenter
+panelSubtitles.addChild(labelSubsTitle)
 
-let btnSubtitlesLoad = createButton("btnSubtitlesLoad", 20, 70, 200, 40, "Загрузить субтитры")
-btnSubtitlesLoad.onClick = proc(btn: Button) =
-  gui.showInfoDialog("Субтитры", "Выберите файл субтитров...")
-  echo "[Панель Субтитры] Загрузить субтитры"
-panelSubtitles.addChild(btnSubtitlesLoad)
+let labelSubsFile = createLabel("lblSubsFile", 20, 80, 150, 30, "Файл субтитров:")
+panelSubtitles.addChild(labelSubsFile)
 
-let btnSubtitlesSave = createButton("btnSubtitlesSave", 230, 70, 200, 40, "Сохранить субтитры")
-btnSubtitlesSave.onClick = proc(btn: Button) =
-  gui.showInfoDialog("Субтитры", "Сохранение субтитров...")
-  echo "[Панель Субтитры] Сохранить субтитры"
-panelSubtitles.addChild(btnSubtitlesSave)
+let fieldSubsFile = createTextField("fieldSubsFile", 180, 80, 800, 30)
+fieldSubsFile.placeholder = "Путь к файлу субтитров..."
+panelSubtitles.addChild(fieldSubsFile)
 
-let labelSubtitlesFormat = createLabel("labelSubtitlesFormat", 20, 130, 150, 30, "Формат:")
-panelSubtitles.addChild(labelSubtitlesFormat)
+let btnSubsBrowse = createButton("btnSubsBrowse", 1000, 80, 120, 30, "Обзор...")
+btnSubsBrowse.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Субтитры", "Выбрать файл субтитров")
+panelSubtitles.addChild(btnSubsBrowse)
 
-let comboSubtitlesFormat = createComboBox("comboSubtitlesFormat", 180, 130, 200, 30)
-comboSubtitlesFormat.items = @["SRT", "ASS", "SSA", "VTT", "SUB"]
-comboSubtitlesFormat.selectedIndex = 0
-panelSubtitles.addChild(comboSubtitlesFormat)
+let labelSubsFormat = createLabel("lblSubsFormat", 20, 130, 150, 30, "Формат:")
+panelSubtitles.addChild(labelSubsFormat)
 
-let labelSubtitlesEncoding = createLabel("labelSubtitlesEncoding", 20, 180, 150, 30, "Кодировка:")
-panelSubtitles.addChild(labelSubtitlesEncoding)
+let comboSubsFormat = createComboBox("comboSubsFormat", 180, 130, 200, 30)
+comboSubsFormat.items = @["SRT", "ASS", "VTT", "SSA", "SUB"]
+comboSubsFormat.selectedIndex = 0
+comboSubsFormat.onSelect = proc(cb: ComboBox, idx: int) =
+  echo "[Subtitles] Выбран формат: ", cb.items[idx]
+panelSubtitles.addChild(comboSubsFormat)
 
-let comboSubtitlesEncoding = createComboBox("comboSubtitlesEncoding", 180, 180, 200, 30)
-comboSubtitlesEncoding.items = @["UTF-8", "Windows-1251", "ISO-8859-1"]
-comboSubtitlesEncoding.selectedIndex = 0
-panelSubtitles.addChild(comboSubtitlesEncoding)
+let labelSubsEncoding = createLabel("lblSubsEncoding", 400, 130, 150, 30, "Кодировка:")
+panelSubtitles.addChild(labelSubsEncoding)
 
-let cbSubtitlesEmbed = createCheckBox("cbSubtitlesEmbed", 20, 230, "Встроить в видео")
-panelSubtitles.addChild(cbSubtitlesEmbed)
+let comboSubsEncoding = createComboBox("comboSubsEncoding", 560, 130, 200, 30)
+comboSubsEncoding.items = @["UTF-8", "Windows-1251", "KOI8-R", "ISO-8859-1"]
+comboSubsEncoding.selectedIndex = 0
+comboSubsEncoding.onSelect = proc(cb: ComboBox, idx: int) =
+  echo "[Subtitles] Выбрана кодировка: ", cb.items[idx]
+panelSubtitles.addChild(comboSubsEncoding)
 
-let cbSubtitlesBurn = createCheckBox("cbSubtitlesBurn", 20, 260, "Вжечь в видео")
-panelSubtitles.addChild(cbSubtitlesBurn)
+let labelSubsEditor = createLabel("lblSubsEditor", 20, 180, 1220, 30, "Редактор субтитров:")
+panelSubtitles.addChild(labelSubsEditor)
 
-let labelSubtitlesText = createLabel("labelSubtitlesText", 20, 310, 300, 30, "Редактор субтитров:")
-panelSubtitles.addChild(labelSubtitlesText)
-
-let textAreaSubtitles = createTextArea("textAreaSubtitles", 20, 350, 800, 150)
-textAreaSubtitles.lines = @[
+let textareaSubsEditor = createTextArea("textareaSubsEditor", 20, 220, 1220, 300)
+textareaSubsEditor.lines = @[
   "1",
-  "00:00:01,000 --> 00:00:03,000",
-  "Пример текста субтитров",
+  "00:00:01,000 --> 00:00:04,000",
+  "Пример субтитров",
   "",
   "2",
-  "00:00:04,000 --> 00:00:06,000",
-  "Второй блок субтитров"
+  "00:00:05,000 --> 00:00:08,000",
+  "Второй пример текста субтитров"
 ]
-panelSubtitles.addChild(textAreaSubtitles)
+textareaSubsEditor.onChange = proc(ta: TextArea) =
+  echo "[Subtitles] Текст субтитров изменён"
+panelSubtitles.addChild(textareaSubsEditor)
+
+let btnSubsSave = createButton("btnSubsSave", 450, 540, 150, 40, "Сохранить")
+btnSubsSave.bgColor = initColor(34, 139, 34)
+btnSubsSave.textColor = initColor(255, 255, 255)
+btnSubsSave.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Субтитры", "Сохранить файл субтитров")
+panelSubtitles.addChild(btnSubsSave)
+
+let btnSubsExport = createButton("btnSubsExport", 620, 540, 150, 40, "Экспортировать")
+btnSubsExport.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Субтитры", "Экспортировать субтитры")
+panelSubtitles.addChild(btnSubsExport)
 
 gui.addWidget(panelSubtitles)
 
 # ===== ПАНЕЛЬ "ПРОЧЕЕ" =====
-let panelOther = createPanel("panelOther", 10, 90, 1260, 560)
-panelOther.bgColor = initColor(245, 245, 250)
+let panelOther = createPanel("panelOther", 10, 90, 1260, 600)
+panelOther.bgColor = initColor(245, 245, 245)
 panelOther.borderColor = initColor(128, 128, 128)
+panelOther.visible = false
 
-let labelOtherTitle = createLabel("labelOtherTitle", 20, 20, 600, 30, "Дополнительные функции")
-labelOtherTitle.textColor = initColor(0, 0, 0)
+let labelOtherTitle = createLabel("lblOtherTitle", 20, 20, 1220, 40, "Дополнительные функции")
+labelOtherTitle.textColor = initColor(64, 64, 64)
+labelOtherTitle.textAlign = alignCenter
 panelOther.addChild(labelOtherTitle)
 
-let labelOtherMetadata = createLabel("labelOtherMetadata", 20, 70, 200, 30, "Метаданные:")
-panelOther.addChild(labelOtherMetadata)
+let labelOtherTools = createLabel("lblOtherTools", 20, 80, 1220, 30, "Доступные инструменты:")
+panelOther.addChild(labelOtherTools)
 
-let labelOtherTitle2 = createLabel("labelOtherTitle2", 20, 110, 100, 30, "Название:")
-panelOther.addChild(labelOtherTitle2)
+let listOtherTools = createListBox("listOtherTools", 20, 120, 400, 400)
+listOtherTools.items = @[
+  "Конвертер форматов",
+  "Объединение файлов",
+  "Разделение файлов",
+  "Извлечение аудио из видео",
+  "Наложение водяного знака",
+  "Изменение скорости воспроизведения",
+  "Поворот видео",
+  "Обрезка медиафайлов",
+  "Изменение разрешения",
+  "Настройка цветокоррекции"
+]
+listOtherTools.onSelect = proc(lb: ListBox, idx: int) =
+  echo "[Other] Выбран инструмент: ", lb.items[idx]
+  gui.showInfoDialog("Инструмент", "Запустить: " & lb.items[idx])
+panelOther.addChild(listOtherTools)
 
-let fieldOtherTitle = createTextField("fieldOtherTitle", 130, 110, 400, 30)
-fieldOtherTitle.placeholder = "Введите название"
-panelOther.addChild(fieldOtherTitle)
+let panelOtherInfo = createPanel("panelOtherInfo", 450, 120, 790, 460)
+panelOtherInfo.bgColor = initColor(255, 255, 255)
+panelOtherInfo.borderColor = initColor(200, 200, 200)
 
-let labelOtherAuthor = createLabel("labelOtherAuthor", 20, 150, 100, 30, "Автор:")
-panelOther.addChild(labelOtherAuthor)
+let labelOtherInfoTitle = createLabel("lblOtherInfoTitle", 20, 20, 750, 30, "Информация об инструменте")
+labelOtherInfoTitle.textColor = initColor(0, 0, 128)
+panelOtherInfo.addChild(labelOtherInfoTitle)
 
-let fieldOtherAuthor = createTextField("fieldOtherAuthor", 130, 150, 400, 30)
-fieldOtherAuthor.placeholder = "Введите автора"
-panelOther.addChild(fieldOtherAuthor)
+let labelOtherInfoText = createLabel("lblOtherInfoText", 20, 60, 750, 350,
+  "Выберите инструмент из списка слева для просмотра подробной информации.\n\n" &
+  "Каждый инструмент предоставляет специализированные функции для работы с медиафайлами.\n\n" &
+  "После выбора инструмента здесь отобразится его описание, параметры и возможности.")
+labelOtherInfoText.wordWrap = true
+panelOtherInfo.addChild(labelOtherInfoText)
 
-let labelOtherComment = createLabel("labelOtherComment", 20, 190, 100, 30, "Комментарий:")
-panelOther.addChild(labelOtherComment)
+let btnOtherRun = createButton("btnOtherRun", 270, 410, 250, 40, "Запустить инструмент")
+btnOtherRun.bgColor = initColor(70, 130, 180)
+btnOtherRun.textColor = initColor(255, 255, 255)
+btnOtherRun.onClick = proc(btn: Button) =
+  gui.showInfoDialog("Инструменты", "Запуск выбранного инструмента")
+panelOtherInfo.addChild(btnOtherRun)
 
-let textAreaOtherComment = createTextArea("textAreaOtherComment", 130, 190, 400, 100)
-textAreaOtherComment.lines = @[""]
-panelOther.addChild(textAreaOtherComment)
-
-let labelOtherOptions = createLabel("labelOtherOptions", 20, 310, 200, 30, "Дополнительные опции:")
-panelOther.addChild(labelOtherOptions)
-
-let cbOtherAutoSave = createCheckBox("cbOtherAutoSave", 20, 350, "Автосохранение")
-cbOtherAutoSave.checked = true
-panelOther.addChild(cbOtherAutoSave)
-
-let cbOtherBackup = createCheckBox("cbOtherBackup", 20, 380, "Создавать резервные копии")
-panelOther.addChild(cbOtherBackup)
-
-let cbOtherLog = createCheckBox("cbOtherLog", 20, 410, "Вести журнал операций")
-panelOther.addChild(cbOtherLog)
-
-let btnOtherClearCache = createButton("btnOtherClearCache", 20, 460, 200, 40, "Очистить кэш")
-btnOtherClearCache.onClick = proc(btn: Button) =
-  gui.showQuestionDialog("Очистка", "Очистить кэш приложения?") do (dlg: Dialog, result: DialogButton):
-    if result == dbYes:
-      echo "[Панель Прочее] Кэш очищен"
-      gui.showInfoDialog("Очистка", "Кэш успешно очищен")
-panelOther.addChild(btnOtherClearCache)
+panelOther.addChild(panelOtherInfo)
 
 gui.addWidget(panelOther)
 
