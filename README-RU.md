@@ -137,7 +137,7 @@ SDL_Quit()
 
 ## Документация
 
-Полный справочник по API доступен в файлах [API Reference](API_Reference.md) (английский) или [API Reference RU](API_Reference_RU.md) (русский).
+Полный справочник по API доступен в файлах [API Reference](docs/sdlGuiLib_API_reference_EN.md) (английский) или [API Reference RU](docs/sdlGuiLib_API_reference_RU.md) (русский).
 
 ## Примеры
 

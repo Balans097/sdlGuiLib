@@ -146,7 +146,7 @@ SDL_Quit()
 
 ## Documentation
 
-For complete API reference, see [API Reference](API_Reference.md) (English) or [API Reference RU](API_Reference_RU.md) (Russian).
+For complete API reference, see [API Reference](docs/sdlGuiLib_API_reference_EN.md) (English) or [API Reference RU](docs/sdlGuiLib_API_reference_RU.md) (Russian).
 
 ## Examples
 
