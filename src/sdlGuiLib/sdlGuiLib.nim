@@ -424,9 +424,17 @@ proc setRenderColor*(renderer: SdlRenderer, color: SdlColor) =
 
 proc renderFillRect*(renderer: SdlRenderer, rect: SdlRect, color: SdlColor) =
   ## Нарисовать закрашенный прямоугольник
+  # Если есть прозрачность, включаем blend mode
+  if color.a < 255:
+    discard SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND)
+  
   setRenderColor(renderer, color)
   var frect = initFRect(rect.x.float, rect.y.float, rect.w.float, rect.h.float)
   discard SDL_RenderFillRect(renderer, addr frect)
+  
+  # Восстанавливаем blend mode
+  if color.a < 255:
+    discard SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE)
 
 proc renderRect*(renderer: SdlRenderer, rect: SdlRect, color: SdlColor, width: int = 1) =
   ## Нарисовать контур прямоугольника
@@ -771,27 +779,36 @@ proc renderTextField*(gui: GuiManager, field: TextField) =
     discard renderText(gui.renderer, gui.theme.font, displayText, 
                       textX - field.scrollOffset, textY, field.textColor)
     
-    # Курсор (мигающий)
-    if field.state == wsFocused and gui.cursorVisible:
-      # Получаем текст до курсора используя руны
-      let runes = displayText.toRunes
-      let cursorText = if field.cursorPos <= runes.len:
-                         $runes[0..<field.cursorPos]
-                       else:
-                         displayText
-      let cursorX = textX - field.scrollOffset + getTextSize(gui.theme.font, cursorText).w
-      let cursorY1 = field.rect.y.int + padding
-      let cursorY2 = field.rect.y.int + field.rect.h.int - padding
-      
-      setRenderColor(gui.renderer, field.textColor)
-      discard SDL_RenderLine(gui.renderer, cursorX.cfloat, cursorY1.cfloat, 
-                            cursorX.cfloat, cursorY2.cfloat)
-    
     discard SDL_SetRenderClipRect(gui.renderer, nil)
   
   elif field.placeholder.len > 0:
     discard renderText(gui.renderer, gui.theme.font, field.placeholder, 
                       textX, textY, field.placeholderColor)
+  
+  # Курсор (мигающий) - рисуется всегда когда поле в фокусе
+  if field.state == wsFocused and gui.cursorVisible:
+    # Получаем текст до курсора используя руны
+    var cursorX = textX - field.scrollOffset
+    
+    if field.text.len > 0:
+      var displayText = field.text
+      if field.isPassword and field.passwordChar.int != 0:
+        displayText = $field.passwordChar.repeat(field.text.runeLen)
+      
+      let runes = displayText.toRunes
+      let cursorText = if field.cursorPos <= runes.len:
+                         $runes[0..<field.cursorPos]
+                       else:
+                         displayText
+      cursorX += getTextSize(gui.theme.font, cursorText).w
+    
+    # Курсор чуть выше и ниже текста (на 2 пикселя)
+    let cursorY1 = field.rect.y.int + padding - 2
+    let cursorY2 = field.rect.y.int + field.rect.h.int - padding + 2
+    
+    setRenderColor(gui.renderer, field.textColor)
+    discard SDL_RenderLine(gui.renderer, cursorX.cfloat, cursorY1.cfloat, 
+                          cursorX.cfloat, cursorY2.cfloat)
 
 
 proc insertTextInField*(field: TextField, text: string) =
@@ -1952,6 +1969,12 @@ proc createPanel*(id: string, x, y, w, h: int): Panel =
     scrollable: false
   )
 
+# Forward declarations для функций рендеринга, используемых в renderPanel
+proc renderListBox*(gui: GuiManager, list: ListBox)
+proc renderComboBox*(gui: GuiManager, combo: ComboBox)
+proc renderSpinBox*(gui: GuiManager, spin: SpinBox)
+proc renderTabControl*(gui: GuiManager, tc: TabControl)
+
 proc renderPanel*(gui: GuiManager, panel: Panel) =
   ## Отрендерить панель
   if not panel.visible:
@@ -1963,7 +1986,167 @@ proc renderPanel*(gui: GuiManager, panel: Panel) =
   # Граница
   renderRect(gui.renderer, panel.rect, panel.borderColor, gui.theme.borderWidth)
   
-  # Дочерние виджеты будут отрендерены отдельно
+  # Рендерим дочерние виджеты с учетом позиции панели
+  for child in panel.children:
+    if not child.visible:
+      continue
+    
+    # Сохраняем оригинальные координаты
+    let origX = child.rect.x
+    let origY = child.rect.y
+    
+    # Применяем смещение панели
+    child.rect.x = panel.rect.x + origX
+    child.rect.y = panel.rect.y + origY
+    
+    # Рендеринг в зависимости от типа виджета
+    if child of Button:
+      renderButton(gui, Button(child))
+    elif child of TextField:
+      renderTextField(gui, TextField(child))
+    elif child of TextArea:
+      renderTextArea(gui, TextArea(child))
+    elif child of CheckBox:
+      renderCheckBox(gui, CheckBox(child))
+    elif child of RadioButton:
+      renderRadioButton(gui, RadioButton(child))
+    elif child of Slider:
+      renderSlider(gui, Slider(child))
+    elif child of ProgressBar:
+      renderProgressBar(gui, ProgressBar(child))
+    elif child of Label:
+      renderLabel(gui, Label(child))
+    elif child of Panel:
+      # Рекурсивная отрисовка вложенных панелей
+      renderPanel(gui, Panel(child))
+    elif child of ListBox:
+      renderListBox(gui, ListBox(child))
+    elif child of ComboBox:
+      renderComboBox(gui, ComboBox(child))
+    elif child of SpinBox:
+      renderSpinBox(gui, SpinBox(child))
+    elif child of TabControl:
+      renderTabControl(gui, TabControl(child))
+    
+    # Восстанавливаем оригинальные координаты
+    child.rect.x = origX
+    child.rect.y = origY
+
+
+proc addChild*(panel: Panel, widget: Widget) =
+  ## Добавить дочерний виджет в панель
+  ## Координаты виджета остаются относительно панели
+  widget.parent = panel
+  panel.children.add(widget)
+
+proc removeChild*(panel: Panel, widget: Widget) =
+  ## Удалить дочерний виджет из панели
+  for i in 0..<panel.children.len:
+    if panel.children[i] == widget:
+      widget.parent = nil
+      panel.children.delete(i)
+      break
+
+proc clearChildren*(panel: Panel) =
+  ## Удалить все дочерние виджеты из панели
+  for child in panel.children:
+    child.parent = nil
+  panel.children = @[]
+
+proc getChildById*(panel: Panel, id: string): Widget =
+  ## Найти дочерний виджет по ID
+  for child in panel.children:
+    if child.id == id:
+      return child
+  return nil
+
+# Forward declarations для обработчиков событий, объявленных после handlePanelEvent
+proc handleComboBoxEvent*(gui: GuiManager, combo: ComboBox, event: ptr SdlEvent): bool
+proc handleSpinBoxEvent*(gui: GuiManager, spin: SpinBox, event: ptr SdlEvent): bool
+
+proc handlePanelEvent*(gui: GuiManager, panel: Panel, event: ptr SdlEvent): bool =
+  ## Обработать событие для панели и её дочерних виджетов
+  if not panel.visible or not panel.enabled:
+    return false
+  
+  # Передаём события дочерним виджетам (в обратном порядке, чтобы верхние обрабатывались первыми)
+  for i in countdown(panel.children.len - 1, 0):
+    let child = panel.children[i]
+    if not child.visible or not child.enabled:
+      continue
+    
+    # Сохраняем оригинальные координаты и применяем смещение
+    let origX = child.rect.x
+    let origY = child.rect.y
+    child.rect.x = panel.rect.x + origX
+    child.rect.y = panel.rect.y + origY
+    
+    # Проверяем тип дочернего виджета и вызываем соответствующий обработчик
+    var handled = false
+    
+    if child of Button:
+      let btn = Button(child)
+      if event.type == SDL_EVENT_MOUSE_BUTTON_DOWN:
+        let mouseX = event.button.x
+        let mouseY = event.button.y
+        if pointInRect(mouseX, mouseY, btn.rect):
+          if not btn.onClick.isNil:
+            btn.onClick(btn)
+          handled = true
+    
+    elif child of TextField:
+      handled = handleTextFieldEvent(gui, TextField(child), event)
+    
+    elif child of TextArea:
+      handled = handleTextAreaEvent(gui, TextArea(child), event)
+    
+    elif child of CheckBox:
+      let cb = CheckBox(child)
+      if event.type == SDL_EVENT_MOUSE_BUTTON_DOWN:
+        let mouseX = event.button.x
+        let mouseY = event.button.y
+        if pointInRect(mouseX, mouseY, cb.rect):
+          cb.checked = not cb.checked
+          if not cb.onChange.isNil:
+            cb.onChange(cb, cb.checked)
+          handled = true
+    
+    elif child of RadioButton:
+      handled = handleRadioButtonEvent(gui, RadioButton(child), event)
+    
+    elif child of ComboBox:
+      handled = handleComboBoxEvent(gui, ComboBox(child), event)
+    
+    elif child of SpinBox:
+      handled = handleSpinBoxEvent(gui, SpinBox(child), event)
+    
+    elif child of ListBox:
+      let lb = ListBox(child)
+      if event.type == SDL_EVENT_MOUSE_BUTTON_DOWN:
+        let mouseX = event.button.x
+        let mouseY = event.button.y
+        if pointInRect(mouseX, mouseY, lb.rect):
+          let relY = mouseY.int - lb.rect.y.int - lb.scrollOffset
+          let index = relY div lb.itemHeight
+          if index >= 0 and index < lb.items.len:
+            lb.selectedIndex = index
+            if not lb.onSelect.isNil:
+              lb.onSelect(lb, index)
+          handled = true
+    
+    elif child of Panel:
+      # Рекурсивная обработка вложенных панелей
+      handled = handlePanelEvent(gui, Panel(child), event)
+    
+    # Восстанавливаем оригинальные координаты
+    child.rect.x = origX
+    child.rect.y = origY
+    
+    if handled:
+      return true
+  
+  return false
+
 
 # =============================================================================
 # Список
@@ -3111,9 +3294,9 @@ proc renderDialog*(gui: GuiManager, dlg: Dialog, windowW, windowH: int) =
   dlg.rect.x = ((windowW - dlg.rect.w.int) div 2).cint
   dlg.rect.y = ((windowH - dlg.rect.h.int) div 2).cint
   
-  # Полупрозрачный фон
+  # Полупрозрачный фон (легкое затемнение вместо черного)
   let overlayRect = initRect(0, 0, windowW, windowH)
-  renderFillRect(gui.renderer, overlayRect, initColor(0, 0, 0, 128))
+  renderFillRect(gui.renderer, overlayRect, initColor(0, 0, 0, 180))
   
   # Окно диалога
   renderFillRect(gui.renderer, dlg.rect, gui.theme.bgColor)
@@ -3305,6 +3488,9 @@ proc renderStatusBar*(gui: GuiManager, statusbar: StatusBar) =
 
 proc renderGui*(gui: GuiManager) =
   ## Отрендерить все виджеты
+  # Обновляем мигание курсора
+  gui.updateCursorBlink()
+  
   # Сначала рендерим все виджеты кроме открытых ComboBox, Menu и выпадающих меню MenuBar
   var openComboBoxes: seq[ComboBox] = @[]
   var openMenus: seq[Menu] = @[]
@@ -3312,6 +3498,10 @@ proc renderGui*(gui: GuiManager) =
   
   for widget in gui.widgets:
     if not widget.visible:
+      continue
+    
+    # Пропускаем виджеты, у которых есть parent (они будут отрисованы через parent)
+    if widget.parent != nil:
       continue
     
     # Откладываем рендеринг открытых ComboBox и Menu
@@ -3465,6 +3655,8 @@ proc handleGuiEvent*(gui: GuiManager, event: ptr SdlEvent): bool =
       handled = handleSpinBoxEvent(gui, SpinBox(widget), event)
     elif widget of TabControl:
       handled = handleTabControlEvent(gui, TabControl(widget), event)
+    elif widget of Panel:
+      handled = handlePanelEvent(gui, Panel(widget), event)
     elif widget of Menu:
       # Закрытые Menu обрабатываем как обычно
       let menu = Menu(widget)
